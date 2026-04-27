@@ -38,7 +38,7 @@ print(f"{len(wave_filepaths)} wave files found @ {waves_dir}")  # noqa: T201
 
 # PENN PARAMS
 hopsize = 0.01
-gpu = None
+gpu = 0
 batch_size = 1024
 checkpoint = None
 center = "half-hop"
