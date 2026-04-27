@@ -62,8 +62,8 @@ def infer_pitch(wav, sr, thr=0.5, sr8k=True, batch_size=1024):  # noqa: ANN001, 
 		gpu=gpu,
 	)
 
-	pitch_nn = pitch[0]
-	probs_nn = periodicity[0]
+	pitch_nn = pitch[0].clone()
+	probs_nn = periodicity[0].clone()
 
 	pitch_nn[probs_nn <= thr] = torch.nan
 
