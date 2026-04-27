@@ -10,7 +10,6 @@ import penn
 import torch
 import torchaudio
 from tqdm import tqdm
-from utils import scandir, write_lines_to_file
 from utils.audio import MelSpectrogram
 
 parser = argparse.ArgumentParser(description="Extract pitch using Penn algorithm.")
@@ -33,7 +32,7 @@ fmax = librosa.note_to_hz("C5")  # C5: 523.25 C6: 1046.50 C7: 2093.00
 mel_trf = MelSpectrogram()
 
 
-wave_filepaths = scandir(waves_dir)
+wave_filepaths = [os.path.join(dp, f) for dp, dn, filenames in os.walk(waves_dir) for f in filenames if f.endswith('.wav')]
 print(f"{len(wave_filepaths)} wave files found @ {waves_dir}")  # noqa: T201
 
 
@@ -109,7 +108,7 @@ for _i, wave_filepath in tqdm(
 	torch.save(pitch_penn, pitch_filepath)
 
 
-pitch_filepaths = scandir(pitches_dir, extensions=(".pth"))
+pitch_filepaths = [os.path.join(dp, f) for dp, dn, filenames in os.walk(pitches_dir) for f in filenames if f.endswith('.pth')]
 
 rmean = 0
 rvar = 0
@@ -142,13 +141,11 @@ print("std", std)  # noqa: T201
 
 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")  # noqa: DTZ005
 
-write_lines_to_file(
-	path=f"./data/mean_std_{timestamp}.txt",
-	lines=[
+with open(f"mean_std_{timestamp}.txt", "w") as f:
+	f.write("\n".join([
 		f"dir: {pitches_dir}",
 		f"nfiles: {len(pitch_filepaths)}",
 		"method: penn",
 		f"mean: {mean}",
 		f"std: {std}",
-	],
-)
+	]) + "\n")
