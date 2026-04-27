@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+ENV/
+env/
+scratch_venv/
+.env
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Datasets (downloaded at runtime via setup script)
+/datasets/
+
+# Model Checkpoints / Logs / Results (generated during training)
+/models/tts/checkpoints/
+/runs/
+/logs/
+/results/
+
+# Generated training config (contains machine-specific absolute paths)
+/models/tts/src/config.yaml
+
+# Pretrained model weights (downloaded at runtime via setup script)
+/models/tts/tts-arabic-pytorch/pretrained/*.pth
+/models/tts/tts-arabic-pytorch/pretrained/**/*.pth

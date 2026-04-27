@@ -1,0 +1,22 @@
+# Core ML
+torch
+torchaudio
+datasets
+
+# TTS Training
+librosa
+penn
+pyworld
+matplotlib
+pyyaml
+
+# Data processing
+pandas
+tqdm
+joblib
+lgg
+
+# Pretrained model download
+gdown
+
+# Audio conversion (used by mp3-to-wav.sh via ffmpeg, no python dep needed)
