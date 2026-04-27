@@ -179,16 +179,16 @@ echo "🎵 Step 6/7: Extracting F0 pitch features (this may take a while)..."
 cd "$TTS_REPO_DIR"
 cp "$TTS_SRC_DIR/extract_f0_penn.py" .
 
-output=$(python extract_f0_penn.py --audios_dir "$ALL_DATASETS_DIR/audios" 2>&1)
+# Run F0 extraction — show output in real-time and capture to file
+F0_LOG="$ROOT_DIR/f0_extraction.log"
+python extract_f0_penn.py --audios_dir "$ALL_DATASETS_DIR/audios" 2>&1 | tee "$F0_LOG"
 
-# Extract mean and std from output
-mean=$(echo "$output" | grep -oE "mean [0-9.]+" | head -1 | awk '{print $2}')
-std=$(echo "$output" | grep -oE "std [0-9.]+" | head -1 | awk '{print $2}')
+# Extract mean and std from the log
+mean=$(grep -oE "mean [0-9.]+" "$F0_LOG" | head -1 | awk '{print $2}')
+std=$(grep -oE "std [0-9.]+" "$F0_LOG" | head -1 | awk '{print $2}')
 
 if [ -z "$mean" ] || [ -z "$std" ]; then
-    echo "❌ Failed to extract F0 mean/std from pitch extraction output."
-    echo "   Output was:"
-    echo "$output"
+    echo "❌ Failed to extract F0 mean/std. Check the output above for errors."
     exit 1
 fi
 
