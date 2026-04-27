@@ -62,16 +62,29 @@ echo "📦 Step 1/7: Installing Python dependencies..."
 cd "$ROOT_DIR"
 git submodule update --init --recursive 2>/dev/null || true
 
-# Install project requirements
-pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
+# Create and activate virtual environment
+VENV_DIR="$ROOT_DIR/venv"
+if [ ! -d "$VENV_DIR" ]; then
+    echo "   Creating virtual environment at $VENV_DIR..."
+    python3 -m venv "$VENV_DIR"
+fi
+# shellcheck disable=SC1091
+source "$VENV_DIR/bin/activate"
+echo "   Using Python: $(which python)"
 
-# Install PyTorch with CUDA support (skip if already installed)
+# Upgrade pip
+pip install --upgrade pip --quiet
+
+# Install PyTorch with CUDA support first (skip if already installed)
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
     echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch with CUDA 12.1..."
     pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu121
 else
     echo "   ✅ PyTorch with CUDA already installed."
 fi
+
+# Install project requirements
+pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
 
 # Install datasets library for HuggingFace downloads
 pip install --no-cache-dir datasets

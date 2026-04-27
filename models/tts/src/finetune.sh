@@ -5,6 +5,11 @@ set -e
 cd "$(dirname "$0")"
 
 src_dir=$(pwd)
+root_dir="$src_dir/../../.."
+
+# Activate virtual environment
+# shellcheck disable=SC1091
+source "$root_dir/venv/bin/activate"
 
 # copy updated script file
 cp "$src_dir/train_fp_adv.py" ../tts-arabic-pytorch/

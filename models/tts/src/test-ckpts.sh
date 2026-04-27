@@ -14,6 +14,11 @@ fi
 # Go to the directory of this script
 cd "$(dirname "$0")"
 src_dir=$(pwd)
+root_dir="$src_dir/../../.."
+
+# Activate virtual environment
+# shellcheck disable=SC1091
+source "$root_dir/venv/bin/activate"
 
 # copy updated script file
 cp "$src_dir/test_raw_model.py" ../tts-arabic-pytorch/
