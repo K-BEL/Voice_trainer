@@ -66,8 +66,12 @@ for file_dict in FILES_DICT.values():
 		print(file_dict["path"], "already exists!")  # noqa: T201
 	elif file_dict.get("download", True):
 		print("Downloading ", file_dict["path"], "...")  # noqa: T201
+		# Extract file ID from Google Drive share URL
+		url = file_dict["url"]
+		if "/d/" in url:
+			file_id = url.split("/d/")[1].split("/")[0]
+			url = f"https://drive.google.com/uc?id={file_id}"
 		output_filepath = gdown.download(
-			file_dict["url"],
+			url,
 			output=file_path.as_posix(),
-			fuzzy=True,
 		)
