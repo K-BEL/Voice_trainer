@@ -17,6 +17,6 @@ joblib
 lgg
 
 # Pretrained model download
-gdown
+gdown>=4.6.0
 
 # Audio conversion (used by mp3-to-wav.sh via ffmpeg, no python dep needed)
