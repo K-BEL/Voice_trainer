@@ -104,7 +104,7 @@ fi
 pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
 
 # Install datasets library for HuggingFace downloads
-pip install --no-cache-dir datasets
+pip install --no-cache-dir datasets huggingface_hub
 
 echo ""
 
@@ -113,6 +113,12 @@ if [ "$SKIP_DOWNLOAD" = true ]; then
     echo "⏭️  Skipping DODa download (--skip-download)"
 else
     echo "📥 Step 2/7: Downloading DODa dataset from HuggingFace..."
+    
+    # Check if logged into HuggingFace
+    if ! python -c "from huggingface_hub import HfApi; HfApi().whoami()" 2>/dev/null; then
+        echo "   🔑 HuggingFace login required (DODa dataset needs authentication)."
+        huggingface-cli login
+    fi
     if [ -f "$DODA_DIR/data.csv" ] && [ -d "$DODA_DIR/audios" ]; then
         echo "   Dataset already exists at $DODA_DIR"
         read -p "   Re-download? [y/N]: " REDOWNLOAD
