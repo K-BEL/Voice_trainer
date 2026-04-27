@@ -128,7 +128,7 @@ code = code.replace(
     'initial=self.initial.cpu(),'
 ).replace(
     'gpu=gpu)',
-    'gpu=None)'
+    'gpu=None)\n        bins = bins.to(logits.device)'
 )
 
 with open(decode_py, 'w') as f: f.write(code)
