@@ -102,9 +102,11 @@ fi
 
 # Install project requirements
 # Note: torbi (dependency of penn) has no precompiled binaries for this CUDA version,
-# so we build it from source first (requires nvcc / CUDA toolkit)
+# so we build it from source (requires nvcc / CUDA toolkit).
+# --no-build-isolation reuses the already-installed PyTorch instead of downloading a second copy.
 echo "   Building torbi from source (penn dependency)..."
-pip install --no-cache-dir torbi --no-binary torbi
+pip install --no-cache-dir ninja  # needed for fast CUDA kernel compilation
+pip install --no-cache-dir torbi --no-binary torbi --no-build-isolation
 pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
 
 # Install datasets library for HuggingFace downloads
