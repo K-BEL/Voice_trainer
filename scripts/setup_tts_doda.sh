@@ -62,15 +62,32 @@ echo "📦 Step 1/7: Installing Python dependencies..."
 cd "$ROOT_DIR"
 git submodule update --init --recursive 2>/dev/null || true
 
-# Create and activate virtual environment
+# Create and activate virtual environment using a PyTorch-compatible Python
 VENV_DIR="$ROOT_DIR/venv"
 if [ ! -d "$VENV_DIR" ]; then
     echo "   Creating virtual environment at $VENV_DIR..."
-    python3 -m venv "$VENV_DIR"
+    
+    # Find a Python version compatible with PyTorch (3.10, 3.11, 3.12)
+    PYTHON_BIN=""
+    for candidate in python3.12 python3.11 python3.10; do
+        if command -v "$candidate" &>/dev/null; then
+            PYTHON_BIN="$candidate"
+            break
+        fi
+    done
+    
+    if [ -z "$PYTHON_BIN" ]; then
+        echo "   ❌ No PyTorch-compatible Python found (need 3.10, 3.11, or 3.12)."
+        echo "   Install one with: sudo apt install python3.12 python3.12-venv"
+        exit 1
+    fi
+    
+    echo "   Using $PYTHON_BIN ($(${PYTHON_BIN} --version))"
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 # shellcheck disable=SC1091
 source "$VENV_DIR/bin/activate"
-echo "   Using Python: $(which python)"
+echo "   Using Python: $(python --version) at $(which python)"
 
 # Upgrade pip
 pip install --upgrade pip --quiet
