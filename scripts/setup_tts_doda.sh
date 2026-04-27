@@ -109,6 +109,19 @@ pip install --no-cache-dir ninja numpy setuptools  # build deps for torbi
 pip install --no-cache-dir torbi --no-binary torbi --no-build-isolation
 pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
 
+# Patch penn to run Viterbi decoding on CPU (since torbi is CPU-only without full nvcc)
+echo "   Patching penn for CPU Viterbi decoding..."
+python3 -c "
+import penn, os
+decode_py = os.path.join(os.path.dirname(penn.__file__), 'decode.py')
+with open(decode_py, 'r') as f: code = f.read()
+code = code.replace(
+    'bins = torbi.from_probabilities(',
+    'probabilities = probabilities.cpu()\n        self.transitions = self.transitions.cpu()\n        self.starts = self.starts.cpu()\n        bins = torbi.from_probabilities('
+)
+with open(decode_py, 'w') as f: f.write(code)
+"
+
 # Install datasets library for HuggingFace downloads
 pip install --no-cache-dir datasets huggingface_hub
 
