@@ -94,8 +94,8 @@ pip install --upgrade pip --quiet
 
 # Install PyTorch with CUDA support first (skip if already installed)
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-    echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch with CUDA 12.1..."
-    pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu121
+    echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch 2.4 with CUDA 12.1..."
+    pip install --no-cache-dir torch==2.4.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
 else
     echo "   ✅ PyTorch with CUDA already installed."
 fi
