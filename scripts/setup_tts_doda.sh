@@ -115,10 +115,22 @@ python3 -c "
 import penn, os
 decode_py = os.path.join(os.path.dirname(penn.__file__), 'decode.py')
 with open(decode_py, 'r') as f: code = f.read()
+
+# Patch Viterbi decoding block
 code = code.replace(
-    'bins = torbi.from_probabilities(',
-    'probabilities = probabilities.cpu()\n        self.transitions = self.transitions.cpu()\n        self.starts = self.starts.cpu()\n        bins = torbi.from_probabilities('
+    'observation=distributions[0].T.unsqueeze(dim=0),',
+    'observation=distributions[0].T.unsqueeze(dim=0).cpu(),'
+).replace(
+    'transition=self.transition,',
+    'transition=self.transition.cpu(),'
+).replace(
+    'initial=self.initial,',
+    'initial=self.initial.cpu(),'
+).replace(
+    'gpu=gpu)',
+    'gpu=None)'
 )
+
 with open(decode_py, 'w') as f: f.write(code)
 "
 
