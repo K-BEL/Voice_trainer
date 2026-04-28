@@ -1,6 +1,7 @@
 import argparse  # noqa: D100
 import inspect
 import os
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import torch
@@ -51,6 +52,35 @@ def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
 
 
 def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
+	def _build_pitch_dict_file(f0_folder_path, f0_dict_path):  # noqa: ANN001, ANN201, D103
+		f0_folder = Path(f0_folder_path)
+		f0_dict_file = Path(f0_dict_path)
+		if f0_dict_file.exists() or not f0_folder.exists():
+			return
+
+		f0_dict_file.parent.mkdir(parents=True, exist_ok=True)
+		pitch_dict = {}
+		for pitch_file in f0_folder.rglob("*.pth"):
+			rel = pitch_file.relative_to(f0_folder).as_posix()
+			audio_rel = rel[:-4] if rel.endswith(".pth") else rel
+			basename = Path(audio_rel).name
+			stem = Path(audio_rel).stem
+			pitch_tensor = torch.load(pitch_file, map_location="cpu")
+
+			# Support common lookup styles used by different dataset versions.
+			for key in (
+				audio_rel,
+				f"./{audio_rel}",
+				basename,
+				stem,
+				audio_rel.replace("/", os.sep),
+				basename.replace("/", os.sep),
+			):
+				pitch_dict[key] = pitch_tensor
+
+		torch.save(pitch_dict, f0_dict_file)
+		print(f"Built missing pitch dict at {f0_dict_file}")  # noqa: T201
+
 	dataset_kwargs = {
 		"txtpath": config.train_labels,
 		"wavpath": config.train_wavs_path,
@@ -62,6 +92,13 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 		"batch_sizes": config.batch_sizes,
 	}
 	supported_params = set(inspect.signature(DynBatchDataset.__init__).parameters)
+	if "f0_dict_path" in supported_params:
+		fallback_f0_dict_path = Path("./data/pitch_dict.pt").resolve().as_posix()
+		dataset_kwargs["f0_dict_path"] = fallback_f0_dict_path
+		_build_pitch_dict_file(
+			dataset_kwargs["f0_folder_path"],
+			dataset_kwargs["f0_dict_path"],
+		)
 	filtered_kwargs = {
 		key: value for key, value in dataset_kwargs.items() if key in supported_params
 	}
