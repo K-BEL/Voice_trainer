@@ -100,13 +100,13 @@ if __name__ == "__main__":
 	parser.add_argument(
 		"--n_save_states_iter",
 		type=int,
-		default=100,
+		default=500,
 		help="Number of iterations to save states",
 	)
 	parser.add_argument(
 		"--n_save_backup_iter",
 		type=int,
-		default=1000,
+		default=2500,
 		help="Number of iterations to save backups",
 	)
 	parser.add_argument(

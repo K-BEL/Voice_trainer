@@ -92,8 +92,69 @@ Generated audio is saved under:
 1. Run setup once
 2. Start training
 3. Let it run for a while
-4. Test checkpoints periodically
-5. Keep best checkpoints only
+4. Test checkpoints periodically (or use the Gradio demo)
+5. Best checkpoints are saved automatically as `best_model.pth`
+
+## Interactive Demo
+
+Test any checkpoint interactively in your browser:
+
+```bash
+bash models/tts/src/demo.sh models/tts/checkpoints
+```
+
+Then open `http://0.0.0.0:7860` in your browser. Features:
+
+- Text input with Darija/Arabic
+- Checkpoint selector (auto-discovers all `.pth` files)
+- Adjustable speaker ID and pace
+- Real-time audio playback
+
+## Training Features
+
+### Mixed Precision (AMP)
+
+Enabled by default. Gives ~2x speedup and uses ~40% less VRAM.
+
+```bash
+# Disable if you encounter issues
+VT_AMP=0 bash models/tts/src/finetune.sh
+```
+
+### Learning Rate Scheduler
+
+Cosine annealing with warm-up (1000 iters by default). Gradually decays the learning rate for better convergence.
+
+### Validation & Early Stopping
+
+Automatically splits your dataset 90/10 and tracks validation loss. Saves `best_model.pth` when validation improves. Stops training if no improvement for 10 epochs.
+
+### Auto Checkpoint Cleanup
+
+Automatically deletes old numbered checkpoints, keeping only the 3 most recent. Prevents disk-full crashes.
+
+### Environment Variables
+
+All training features are controllable via environment variables:
+
+| Variable | Default | Description |
+|---|---|---|
+| `VT_AMP` | `1` | Enable mixed precision training |
+| `VT_KEEP_CKPTS` | `3` | Number of checkpoints to keep (0 = disable cleanup) |
+| `VT_VAL_SPLIT` | `0.1` | Validation split ratio (0 = disable validation) |
+| `VT_PATIENCE` | `10` | Early stopping patience (0 = disable) |
+| `VT_WARMUP_ITERS` | `1000` | LR warmup iterations |
+| `VT_LR_MIN_RATIO` | `0.01` | Minimum LR as ratio of initial LR |
+| `VT_GAN_WARMUP_ITERS` | `1000` | GAN loss warmup iterations |
+| `VT_RESUME_OPTIMIZERS` | `0` | Resume optimizer states from checkpoint |
+| `VT_RESUME_PROGRESS` | `0` | Resume epoch/iter counters from checkpoint |
+| `VT_DISABLE_TB` | `0` | Disable TensorBoard logging |
+
+Example with custom settings:
+
+```bash
+VT_KEEP_CKPTS=5 VT_PATIENCE=20 VT_AMP=1 bash models/tts/src/finetune.sh
+```
 
 ## Export Artifacts (Important for Cloud Instances)
 
@@ -136,9 +197,14 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 
 ### NaN/unstable training
 
+- AMP handles most NaN/Inf gradient issues automatically now.
+- If problems persist: `VT_AMP=0` to disable mixed precision.
 - Reduce learning rates in `models/tts/src/config.yaml` (`g_lr`, `d_lr`).
-- Increase GAN warmup if your run uses adversarial warmup controls.
-- Keep monitoring gradient norms and checkpoint quality.
+
+### Disk space issues
+
+- Auto-cleanup is now enabled by default (keeps 3 checkpoints).
+- Adjust with `VT_KEEP_CKPTS=5` for more safety margin.
 
 ## Project Layout
 
@@ -152,7 +218,9 @@ Voice_trainer/
 │       ├── src/
 │       │   ├── finetune.sh
 │       │   ├── test-ckpts.sh
-│       │   ├── train_fp_adv.py
+│       │   ├── demo.sh           ← NEW: Launch Gradio demo
+│       │   ├── demo.py           ← NEW: Interactive web UI
+│       │   ├── train_fp_adv.py   ← UPGRADED: AMP, LR sched, validation
 │       │   ├── generate-config.py
 │       │   ├── extract_f0_penn.py
 │       │   ├── download_files.py
@@ -173,3 +241,4 @@ AGPL-3.0. See `LICENSE`.
 
 - [nipponjo/tts-arabic-pytorch](https://github.com/nipponjo/tts-arabic-pytorch)
 - [atlasia/DODa-audio-dataset](https://huggingface.co/datasets/atlasia/DODa-audio-dataset)
+

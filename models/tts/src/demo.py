@@ -1,0 +1,147 @@
+"""Interactive Gradio demo for testing Voice Trainer checkpoints.
+
+Launch with:
+    bash models/tts/src/demo.sh [checkpoints_dir]
+"""
+
+import argparse
+import os
+from pathlib import Path
+
+import gradio as gr
+import torch
+import torchaudio
+
+from models.fastpitch import FastPitch2Wave
+
+
+def find_checkpoints(ckpt_dir: str) -> list[str]:
+    """Discover all .pth checkpoint files in a directory."""
+    ckpt_path = Path(ckpt_dir)
+    if not ckpt_path.exists():
+        return []
+    files = sorted(ckpt_path.glob("*.pth"), key=os.path.getmtime, reverse=True)
+    return [f.name for f in files]
+
+
+def load_model(ckpt_dir: str, ckpt_name: str, use_cuda: bool = True):
+    """Load a FastPitch2Wave model from a checkpoint."""
+    ckpt_path = os.path.join(ckpt_dir, ckpt_name)
+    model = FastPitch2Wave(ckpt_path)
+    if use_cuda and torch.cuda.is_available():
+        model = model.cuda()
+    return model
+
+
+# Global model cache to avoid reloading on every request
+_cached_model = None
+_cached_ckpt_name = None
+
+
+def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir: str):
+    """Generate speech from text using the selected checkpoint."""
+    global _cached_model, _cached_ckpt_name  # noqa: PLW0603
+
+    if not text.strip():
+        return None
+
+    # Load or reuse model
+    if _cached_ckpt_name != ckpt_name or _cached_model is None:
+        _cached_model = load_model(ckpt_dir, ckpt_name)
+        _cached_ckpt_name = ckpt_name
+
+    # Generate waveform
+    wave = _cached_model.tts(text, speaker_id=speaker_id, phonemize=False)
+    wave = wave.unsqueeze(0).cpu()
+
+    # Save to temp file
+    out_path = "/tmp/vt_demo_output.wav"  # noqa: S108
+    torchaudio.save(out_path, wave, 22050)
+    return out_path
+
+
+def build_ui(ckpt_dir: str):
+    """Build and return the Gradio interface."""
+    checkpoints = find_checkpoints(ckpt_dir)
+
+    if not checkpoints:
+        print(f"No checkpoints found in {ckpt_dir}")  # noqa: T201
+        return None
+
+    print(f"Found {len(checkpoints)} checkpoints in {ckpt_dir}")  # noqa: T201
+
+    with gr.Blocks(
+        title="Voice Trainer — Darija TTS Demo",
+        theme=gr.themes.Soft(),
+    ) as demo:
+        gr.Markdown("# 🎙️ Voice Trainer — Darija TTS Demo")
+        gr.Markdown("Test your fine-tuned checkpoints interactively.")
+
+        with gr.Row():
+            with gr.Column(scale=2):
+                text_input = gr.Textbox(
+                    label="Text (Darija / Arabic)",
+                    placeholder="اكتب شي حاجة هنا...",
+                    lines=3,
+                    value="السلام عليكم صاحبي",
+                )
+                ckpt_dropdown = gr.Dropdown(
+                    label="Checkpoint",
+                    choices=checkpoints,
+                    value=checkpoints[0],
+                )
+                with gr.Row():
+                    speaker_id = gr.Slider(
+                        label="Speaker ID",
+                        minimum=0,
+                        maximum=10,
+                        step=1,
+                        value=0,
+                    )
+                    pace = gr.Slider(
+                        label="Pace",
+                        minimum=0.5,
+                        maximum=2.0,
+                        step=0.1,
+                        value=1.0,
+                    )
+                generate_btn = gr.Button("🔊 Generate", variant="primary", size="lg")
+
+            with gr.Column(scale=1):
+                audio_output = gr.Audio(label="Generated Audio", type="filepath")
+
+        # Refresh button for new checkpoints
+        refresh_btn = gr.Button("🔄 Refresh Checkpoints", size="sm")
+
+        def refresh_ckpts():
+            new_ckpts = find_checkpoints(ckpt_dir)
+            return gr.update(choices=new_ckpts, value=new_ckpts[0] if new_ckpts else None)
+
+        refresh_btn.click(fn=refresh_ckpts, outputs=[ckpt_dropdown])
+
+        generate_btn.click(
+            fn=lambda text, ckpt, sid, p: synthesize(text, ckpt, int(sid), p, ckpt_dir),
+            inputs=[text_input, ckpt_dropdown, speaker_id, pace],
+            outputs=[audio_output],
+        )
+
+    return demo
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Voice Trainer Gradio Demo")
+    parser.add_argument(
+        "--ckpt_dir",
+        type=str,
+        default="./checkpoints/",
+        help="Path to checkpoints directory",
+    )
+    parser.add_argument("--port", type=int, default=7860)
+    parser.add_argument("--share", action="store_true", default=False)
+    args = parser.parse_args()
+
+    demo = build_ui(args.ckpt_dir)
+    if demo is not None:
+        demo.launch(server_name="0.0.0.0", server_port=args.port, share=args.share)
+    else:
+        print("No checkpoints found. Train a model first!")  # noqa: T201

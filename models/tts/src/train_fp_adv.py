@@ -1,9 +1,13 @@
 import argparse  # noqa: D100
+import copy
 import csv
 import gc
+import glob
 import inspect
+import math
 import os
 from pathlib import Path
+import random
 import shutil
 import time
 
@@ -431,6 +435,7 @@ chunk_len = 128
 resume_optimizers = os.environ.get("VT_RESUME_OPTIMIZERS", "0") == "1"
 resume_progress = os.environ.get("VT_RESUME_PROGRESS", "0") == "1"
 gan_warmup_iters = int(os.environ.get("VT_GAN_WARMUP_ITERS", "1000"))
+keep_ckpts = int(os.environ.get("VT_KEEP_CKPTS", "3"))
 
 # resume from existing checkpoint
 n_epoch, n_iter = 0, 0
@@ -506,10 +511,156 @@ def safe_save_states(filename, model, critic, optimizer, optimizer_d, n_iter, ep
 			return False
 
 
+def cleanup_old_checkpoints(checkpoint_dir, keep=3):  # noqa: ANN001, ANN201, D103
+	"""Delete old numbered checkpoints, keeping only the most recent `keep`.
+
+	The rolling `states.pth` is never deleted. Only `states_XXXXX.pth` files
+	are considered. Set `keep=0` to disable cleanup entirely.
+	"""
+	if keep <= 0:
+		return
+	pattern = os.path.join(checkpoint_dir, "states_*.pth")  # noqa: PTH118
+	files = sorted(glob.glob(pattern), key=os.path.getmtime)
+	to_delete = files[:-keep] if len(files) > keep else []
+	for f in to_delete:
+		try:
+			os.remove(f)  # noqa: PTH107
+			print(f"Cleaned up old checkpoint: {os.path.basename(f)}")  # noqa: T201, PTH119
+		except OSError as err:
+			print(f"Failed to delete {f}: {err}")  # noqa: T201
+
+
+def warmup_cosine_lambda(warmup_iters, total_iters, min_lr_ratio=0.01):  # noqa: ANN001, ANN201, D103
+	"""Return an lr_lambda function for LambdaLR: linear warmup then cosine decay."""
+
+	def _lr_lambda(current_iter):  # noqa: ANN001, ANN201
+		if current_iter < warmup_iters:
+			return max(1e-6, current_iter / max(1, warmup_iters))
+		progress = (current_iter - warmup_iters) / max(1, total_iters - warmup_iters)
+		return min_lr_ratio + 0.5 * (1.0 - min_lr_ratio) * (1.0 + math.cos(math.pi * progress))
+
+	return _lr_lambda
+
+
+def _split_labels_file(labels_path, val_ratio=0.1, seed=42):  # noqa: ANN001, ANN201, D103
+	"""Split a labels file into train and val portions. Returns (train_path, val_path)."""
+	labels = Path(labels_path)
+	train_path = labels.parent / (labels.stem + "_train" + labels.suffix)
+	val_path = labels.parent / (labels.stem + "_val" + labels.suffix)
+
+	if train_path.exists() and val_path.exists():
+		return train_path.as_posix(), val_path.as_posix()
+
+	with labels.open("r", encoding="utf-8") as f:
+		lines = f.readlines()
+
+	# Handle CSV with header
+	header = None
+	if labels.suffix.lower() == ".csv":
+		header = lines[0]
+		lines = lines[1:]
+
+	rng = random.Random(seed)  # noqa: S311
+	rng.shuffle(lines)
+
+	split_idx = max(1, int(len(lines) * (1 - val_ratio)))
+	train_lines = lines[:split_idx]
+	val_lines = lines[split_idx:]
+
+	with train_path.open("w", encoding="utf-8") as f:
+		if header:
+			f.write(header)
+		f.writelines(train_lines)
+
+	with val_path.open("w", encoding="utf-8") as f:
+		if header:
+			f.write(header)
+		f.writelines(val_lines)
+
+	print(f"Split dataset: {len(train_lines)} train, {len(val_lines)} val")  # noqa: T201
+	return train_path.as_posix(), val_path.as_posix()
+
+
+def build_val_dataset(config, val_labels_path):  # noqa: ANN001, ANN201, D103
+	"""Build a validation dataset using a split labels file."""
+	val_config = copy.deepcopy(config)
+	val_config.train_labels = val_labels_path
+	try:
+		return build_train_dataset(val_config)
+	except Exception as err:  # noqa: BLE001
+		print(f"Could not build validation dataset: {err}")  # noqa: T201
+		return None
+
+
+# ─── AMP (Mixed Precision) ────────────────────────────────────────
+use_amp = os.environ.get("VT_AMP", "1") == "1"
+scaler_g = torch.amp.GradScaler("cuda", enabled=use_amp)
+scaler_d = torch.amp.GradScaler("cuda", enabled=use_amp)
+if use_amp:
+	print("Mixed precision (AMP) enabled")  # noqa: T201
+
+# ─── LR Schedulers (warmup + cosine decay) ────────────────────────
+lr_warmup_iters = int(os.environ.get("VT_WARMUP_ITERS", "1000"))
+lr_min_ratio = float(os.environ.get("VT_LR_MIN_RATIO", "0.01"))
+# Estimate total iterations for cosine schedule
+_est_iters_per_epoch = max(1, len(train_loader))
+total_iters_est = _est_iters_per_epoch * config.epochs
+lr_lambda_fn = warmup_cosine_lambda(lr_warmup_iters, total_iters_est, lr_min_ratio)
+scheduler_g = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda_fn)
+scheduler_d = torch.optim.lr_scheduler.LambdaLR(optimizer_d, lr_lambda=lr_lambda_fn)
+# Fast-forward schedulers if resuming
+for _ in range(n_iter):
+	scheduler_g.step()
+	scheduler_d.step()
+
+# ─── Validation dataset ───────────────────────────────────────────
+val_split = float(os.environ.get("VT_VAL_SPLIT", "0.1"))
+val_dataset = None
+val_loader = None
+if val_split > 0:
+	try:
+		_, val_labels_path = _split_labels_file(config.train_labels, val_ratio=val_split)
+		val_dataset = build_val_dataset(config, val_labels_path)
+		if val_dataset is not None and len(val_dataset) > 0:
+			val_loader = DataLoader(
+				val_dataset,
+				batch_size=1,
+				collate_fn=lambda x: collate_fn(x[0]),
+				shuffle=False,
+				drop_last=False,
+				num_workers=0,
+				pin_memory=True,
+			)
+			print(f"Validation dataset: {len(val_dataset)} samples")  # noqa: T201
+		else:
+			print("Validation dataset empty, disabling validation")  # noqa: T201
+	except Exception as err:  # noqa: BLE001
+		print(f"Skipping validation: {err}")  # noqa: T201
+
+# ─── Early stopping ───────────────────────────────────────────────
+patience = int(os.environ.get("VT_PATIENCE", "10"))
+best_val_loss = float("inf")
+patience_counter = 0
+
+# ─── Training banner ──────────────────────────────────────────────
+print("=" * 60)  # noqa: T201
+print(f"  Training: epochs={config.epochs}, iter={n_iter}, device={device}")  # noqa: T201
+print(f"  AMP={use_amp}, LR warmup={lr_warmup_iters}, patience={patience}")  # noqa: T201
+print(f"  Keep ckpts={keep_ckpts}, GAN warmup={gan_warmup_iters}")  # noqa: T201
+if val_loader is not None:
+	print(f"  Validation: every {config.n_save_states_iter} iters, split={val_split}")  # noqa: T201
+print("=" * 60)  # noqa: T201
+
+epoch_start_time = time.time()
 model.train()
 
+early_stop = False
 for epoch in range(n_epoch, config.epochs):
+	if early_stop:
+		break
 	train_dataset.shuffle()
+	epoch_start_time = time.time()
+	epoch_losses = []
 	for batch in train_loader:
 		x, y, _ = batch_to_gpu(batch)
 		x = [_sanitize_tensor(v) for v in x]
@@ -519,7 +670,9 @@ for epoch in range(n_epoch, config.epochs):
 			x[6] = torch.zeros(x[0].size(0), dtype=torch.long, device=x[0].device)
 		x = tuple(x)
 
-		y_pred = model(x)
+		# ── Forward pass (AMP) ──────────────────────────────────
+		with torch.amp.autocast("cuda", enabled=use_amp):
+			y_pred = model(x)
 
 		mel_out, *_, attn_soft, attn_hard, _, _ = y_pred
 
@@ -570,13 +723,14 @@ for epoch in range(n_epoch, config.epochs):
 			speaker_vecs = torch.nn.functional.normalize(speaker_vecs, p=2, dim=1)
 			cond_vecs = speaker_vecs
 
-		# discriminator step
-		d_org, fmaps_org = critic_forward(
-			critic, chunks_org_.requires_grad_(True), cond_vecs  # noqa: FBT003
-		)
-		d_gen, _ = critic_forward(critic, chunks_gen_.detach(), cond_vecs)
+		# ── Discriminator step (AMP) ────────────────────────────
+		with torch.amp.autocast("cuda", enabled=use_amp):
+			d_org, fmaps_org = critic_forward(
+				critic, chunks_org_.requires_grad_(True), cond_vecs  # noqa: FBT003
+			)
+			d_gen, _ = critic_forward(critic, chunks_gen_.detach(), cond_vecs)
+			loss_d = 0.5 * (d_org - 1).square().mean() + 0.5 * d_gen.square().mean()
 
-		loss_d = 0.5 * (d_org - 1).square().mean() + 0.5 * d_gen.square().mean()
 		if not _is_finite_tensor(loss_d):
 			print("Skipping batch due to non-finite discriminator loss")  # noqa: T201
 			optimizer_d.zero_grad(set_to_none=True)
@@ -584,15 +738,17 @@ for epoch in range(n_epoch, config.epochs):
 			continue
 
 		critic.zero_grad()
-		loss_d.backward()
-		optimizer_d.step()
+		scaler_d.scale(loss_d).backward()
+		scaler_d.step(optimizer_d)
+		scaler_d.update()
 
-		# generator step
-		loss, meta = criterion(y_pred, y)
+		# ── Generator step (AMP) ────────────────────────────────
+		with torch.amp.autocast("cuda", enabled=use_amp):
+			loss, meta = criterion(y_pred, y)
+			d_gen2, fmaps_gen = critic_forward(critic, chunks_gen_, cond_vecs)
+			loss_score = (d_gen2 - 1).square().mean()
+			loss_fmatch = calc_feature_match_loss(fmaps_gen, fmaps_org)
 
-		d_gen2, fmaps_gen = critic_forward(critic, chunks_gen_, cond_vecs)
-		loss_score = (d_gen2 - 1).square().mean()
-		loss_fmatch = calc_feature_match_loss(fmaps_gen, fmaps_org)
 		gan_weight = config.gan_loss_weight if n_iter >= gan_warmup_iters else 0.0
 		feat_weight = config.feat_loss_weight if n_iter >= gan_warmup_iters else 0.0
 		loss += gan_weight * loss_score
@@ -608,40 +764,51 @@ for epoch in range(n_epoch, config.epochs):
 			continue
 
 		optimizer.zero_grad()
-		loss.backward()
-		sanitized = _sanitize_gradients(model.parameters())
-		if sanitized > 0:
-			print(f"Sanitized non-finite gradients for {sanitized} parameters")  # noqa: T201
+		scaler_g.scale(loss).backward()
+		scaler_g.unscale_(optimizer)
 		grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1000.0)
 		if _is_finite_tensor(grad_norm):
-			optimizer.step()
+			scaler_g.step(optimizer)
 		else:
 			print("Skipping optimizer step due to non-finite gradient norm")  # noqa: T201
 			optimizer.zero_grad(set_to_none=True)
+			scaler_g.update()
 			continue
+		scaler_g.update()
 
-		# LOGGING
+		# ── LR scheduler step ───────────────────────────────────
+		scheduler_g.step()
+		scheduler_d.step()
+
+		# ── LOGGING ─────────────────────────────────────────────
 		meta["loss_d"] = loss_d.detach()
 		meta["score"] = loss_score.detach()
 		meta["fmatch"] = loss_fmatch.detach()
 		meta["kl_loss"] = binarization_loss.detach()
+		epoch_losses.append(meta["loss"].item())
 
-
-		print(f"loss: {meta['loss'].item()} gnorm: {grad_norm}")  # noqa: T201
+		current_lr = optimizer.param_groups[0]["lr"]
+		print(  # noqa: T201
+			f"[E{epoch}/{config.epochs} I{n_iter}] "
+			f"loss: {meta['loss'].item():.4f} gnorm: {grad_norm:.2f} "
+			f"lr: {current_lr:.2e}"
+		)
 
 		if writer is not None:
-			for k, v in meta.items():
-				try:
+			try:
+				for k, v in meta.items():
 					writer.add_scalar(f"train/{k}", v.item(), n_iter)
-				except OSError as err:
-					print(f"Disabling TensorBoard logging due to write error: {err}")  # noqa: T201
-					try:
-						writer.close()
-					except Exception:  # noqa: BLE001
-						pass
-					writer = None
-					break
+				writer.add_scalar("train/lr", current_lr, n_iter)
+				writer.add_scalar("train/amp_scale", scaler_g.get_scale(), n_iter)
+			except OSError as err:
+				print(f"Disabling TensorBoard logging due to write error: {err}")  # noqa: T201
+				try:
+					writer.close()
+				except Exception:  # noqa: BLE001
+					pass
+				writer = None
 
+		# ── Checkpoint saving ───────────────────────────────────
 		if n_iter % config.n_save_states_iter == 0:
 			safe_save_states(
 				"states.pth",
@@ -653,6 +820,55 @@ for epoch in range(n_epoch, config.epochs):
 				epoch,
 			)
 
+			# ── Validation ──────────────────────────────────────
+			if val_loader is not None:
+				model.eval()
+				val_losses = []
+				with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
+					for val_batch in val_loader:
+						try:
+							vx, vy, _ = batch_to_gpu(val_batch)
+							vx = [_sanitize_tensor(v) for v in vx]
+							vy = tuple(_sanitize_tensor(v) for v in vy)
+							if vx[6] is None:
+								vx[6] = torch.zeros(vx[0].size(0), dtype=torch.long, device=vx[0].device)
+							vx = tuple(vx)
+							vy_pred = model(vx)
+							vloss, _ = criterion(vy_pred, vy)
+							if _is_finite_tensor(vloss):
+								val_losses.append(vloss.item())
+						except Exception:  # noqa: BLE001
+							continue
+				if val_losses:
+					avg_val_loss = sum(val_losses) / len(val_losses)
+					print(f"  ── val_loss: {avg_val_loss:.4f} (best: {best_val_loss:.4f})")  # noqa: T201
+					if writer is not None:
+						try:
+							writer.add_scalar("val/loss", avg_val_loss, n_iter)
+						except OSError:
+							pass
+					# Early stopping check
+					if avg_val_loss < best_val_loss:
+						best_val_loss = avg_val_loss
+						patience_counter = 0
+						safe_save_states(
+							"best_model.pth",
+							model,
+							critic,
+							optimizer,
+							optimizer_d,
+							n_iter,
+							epoch,
+						)
+						print("  ── Saved best_model.pth ✓")  # noqa: T201
+					else:
+						patience_counter += 1
+						if patience > 0 and patience_counter >= patience:
+							print(f"  ── Early stopping triggered (patience={patience})")  # noqa: T201
+							early_stop = True
+							break
+				model.train()
+
 		if n_iter % config.n_save_backup_iter == 0 and n_iter > 0:
 			safe_save_states(
 				f"states_{n_iter}.pth",
@@ -663,8 +879,19 @@ for epoch in range(n_epoch, config.epochs):
 				n_iter,
 				epoch,
 			)
+			cleanup_old_checkpoints(config.checkpoint_dir, keep=keep_ckpts)
 
 		n_iter += 1
+
+	# ── Epoch summary ───────────────────────────────────────────
+	epoch_time = time.time() - epoch_start_time
+	avg_epoch_loss = sum(epoch_losses) / max(1, len(epoch_losses))
+	print(  # noqa: T201
+		f"── Epoch {epoch} done in {epoch_time:.0f}s | "
+		f"avg_loss: {avg_epoch_loss:.4f} | "
+		f"lr: {optimizer.param_groups[0]['lr']:.2e} | "
+		f"patience: {patience_counter}/{patience}"
+	)
 
 
 safe_save_states(

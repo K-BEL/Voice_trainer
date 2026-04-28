@@ -20,4 +20,8 @@ lgg
 # Pretrained model download
 gdown>=4.6.0
 
+# Interactive demo
+gradio>=4.0.0
+soundfile
+
 # Audio conversion (used by mp3-to-wav.sh via ffmpeg, no python dep needed)

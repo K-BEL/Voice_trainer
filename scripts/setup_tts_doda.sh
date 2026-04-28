@@ -19,7 +19,7 @@ set -e
 SKIP_DOWNLOAD=false
 SKIP_PRETRAINED=false
 EPOCHS=100
-SAVE_INTERVAL=500
+SAVE_INTERVAL=2500
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
