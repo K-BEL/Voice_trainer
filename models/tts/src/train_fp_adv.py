@@ -36,7 +36,12 @@ except ImportError:
 
 def build_critic(device):  # noqa: ANN001, ANN201, D103
 	# Different upstream snapshots expose different discriminator signatures.
-	for args in ((2, 32), (32,), ()):  # noqa: C408
+	if critic_uses_conditioning:
+		candidates = ((2, 32), (32,), ())  # noqa: C408
+	else:
+		# Non-conditional PatchDiscriminator usually expects 1 input channel.
+		candidates = ((1, 32), (1,), (32,), ())  # noqa: C408
+	for args in candidates:
 		try:
 			return PatchDiscriminatorClass(*args).to(device)
 		except TypeError:
