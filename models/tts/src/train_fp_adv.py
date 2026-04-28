@@ -68,8 +68,20 @@ def remove_silence_safe(energy_per_frame: torch.Tensor, thresh: float = -10.0): 
 	return keep
 
 
+_orig_torchaudio_load = data_utils.torchaudio.load
+
+
+def torchaudio_load_mono_safe(filepath, *args, **kwargs):  # noqa: ANN001, ANN201, D103
+	wave, sr = _orig_torchaudio_load(filepath, *args, **kwargs)
+	if wave.ndim == 2 and wave.size(0) > 1:
+		# Legacy pipeline expects mono waveform [1, T].
+		wave = wave.mean(dim=0, keepdim=True)
+	return wave, sr
+
+
 # Patch legacy utility function for compatibility with newer stacks.
 data_utils.remove_silence = remove_silence_safe
+data_utils.torchaudio.load = torchaudio_load_mono_safe
 
 
 def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
