@@ -45,7 +45,10 @@ texts = ["السلام عليكم صاحبي",
             "لا لا لا ا صاحبي، ماكاينش هاد القضية. راك مشيتي غالط و بعيد بزاااااف",  # noqa: RUF001
          ]
 for i, text in enumerate(texts):
-    wave = model.tts(text, speaker_id=0, phonemize=False)
+    try:
+        wave = model.tts(text, speaker_id=0, phonemize=False)
+    except TypeError:
+        wave = model.tts(text, speaker_id=0)
     # save the wave to a file
     wave = wave.unsqueeze(0)  # Add channel dimension if missing
     wav_path = os.path.join(out_dir, f"test-{i}.wav")  # noqa: PTH118
