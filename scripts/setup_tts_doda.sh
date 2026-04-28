@@ -118,10 +118,17 @@ if [ "$SKIP_DOWNLOAD" = true ]; then
 else
     echo "📥 Step 2/7: Downloading DODa dataset from HuggingFace..."
     
-    # Check if logged into HuggingFace
+    # Check if logged into HuggingFace (prefer `hf`, fallback to legacy CLI)
     if ! python -c "from huggingface_hub import HfApi; HfApi().whoami()" 2>/dev/null; then
         echo "   🔑 HuggingFace login required (DODa dataset needs authentication)."
-        huggingface-cli login
+        if command -v hf >/dev/null 2>&1; then
+            hf auth login
+        elif command -v huggingface-cli >/dev/null 2>&1; then
+            huggingface-cli login
+        else
+            echo "   ❌ Hugging Face CLI not found. Install with: pip install huggingface_hub"
+            exit 1
+        fi
     fi
     if [ -f "$DODA_DIR/data.csv" ] && [ -d "$DODA_DIR/audios" ]; then
         echo "   Dataset already exists at $DODA_DIR"
