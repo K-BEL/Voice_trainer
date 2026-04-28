@@ -355,7 +355,10 @@ optimizer = torch.optim.AdamW(
 	weight_decay=config.weight_decay,
 )
 
-criterion = FastPitchLoss(dur_loss_toofast_scale=1.0)
+try:
+	criterion = FastPitchLoss(dur_loss_toofast_scale=1.0)
+except TypeError:
+	criterion = FastPitchLoss()
 attention_kl_loss = AttentionBinarizationLoss()
 
 
