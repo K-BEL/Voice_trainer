@@ -4,6 +4,7 @@ import gc
 import inspect
 import os
 from pathlib import Path
+import shutil
 import time
 
 import matplotlib.pyplot as plt
@@ -84,6 +85,28 @@ def _sanitize_gradients(parameters):  # noqa: ANN001, ANN201, D103
 			)
 			changed += 1
 	return changed
+
+
+def _prepare_tmp_dir(root_dir):  # noqa: ANN001, ANN201, D103
+	"""Use workspace temp dir when system /tmp is too small."""
+	system_tmp = Path("/tmp")
+	workspace_tmp = Path(root_dir) / ".tmp"
+	try:
+		system_free = shutil.disk_usage(system_tmp).free
+	except Exception:  # noqa: BLE001
+		system_free = 0
+	if system_free < 512 * 1024 * 1024:
+		workspace_tmp.mkdir(parents=True, exist_ok=True)
+		os.environ["TMPDIR"] = workspace_tmp.as_posix()
+		print(f"Using TMPDIR={workspace_tmp} (system /tmp is constrained)")  # noqa: T201
+
+
+def _resolve_num_workers(default_workers):  # noqa: ANN001, ANN201, D103
+	override = os.environ.get("VT_NUM_WORKERS")
+	if override is not None:
+		return max(0, int(override))
+	# Safer default for constrained cloud containers.
+	return max(0, min(int(default_workers), 2))
 
 
 def remove_silence_safe(energy_per_frame: torch.Tensor, thresh: float = -10.0):  # noqa: D103
@@ -338,6 +361,7 @@ except:  # noqa: E722
 
 config = get_config(config_path)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+_prepare_tmp_dir(Path(__file__).resolve().parents[3].as_posix())
 
 # make checkpoint folder if nonexistent
 if not os.path.isdir(config.checkpoint_dir):  # noqa: PTH112
@@ -359,7 +383,7 @@ train_loader = DataLoader(
 	shuffle=shuffle,
 	drop_last=drop_last,
 	sampler=sampler,
-	num_workers=config.num_workers,
+	num_workers=_resolve_num_workers(config.num_workers),
 	pin_memory=True,
 )
 
