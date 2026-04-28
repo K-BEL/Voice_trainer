@@ -439,7 +439,8 @@ else:
 		{k.removeprefix("module."): v for k, v in model_sd["state_dict"].items()},
 	)
 
-writer = SummaryWriter(config.log_dir)
+tb_logging_enabled = os.environ.get("VT_DISABLE_TB", "0") != "1"
+writer = SummaryWriter(config.log_dir) if tb_logging_enabled else None
 
 
 def safe_save_states(filename, model, critic, optimizer, optimizer_d, n_iter, epoch):  # noqa: ANN001, ANN201, D103
@@ -456,7 +457,7 @@ def safe_save_states(filename, model, critic, optimizer, optimizer_d, n_iter, ep
 			config,
 		)
 		return True
-	except RuntimeError as err:
+	except (RuntimeError, OSError) as err:
 		print(f"Checkpoint save failed for {filename}: {err}")  # noqa: T201
 		# Best-effort retry for transient I/O hiccups.
 		time.sleep(1.0)
@@ -476,7 +477,7 @@ def safe_save_states(filename, model, critic, optimizer, optimizer_d, n_iter, ep
 			)
 			print(f"Checkpoint save retry succeeded for {filename}")  # noqa: T201
 			return True
-		except RuntimeError as retry_err:
+		except (RuntimeError, OSError) as retry_err:
 			print(f"Checkpoint retry failed for {filename}: {retry_err}")  # noqa: T201
 			return False
 
@@ -604,8 +605,18 @@ for epoch in range(n_epoch, config.epochs):
 
 		print(f"loss: {meta['loss'].item()} gnorm: {grad_norm}")  # noqa: T201
 
-		for k, v in meta.items():
-			writer.add_scalar(f"train/{k}", v.item(), n_iter)
+		if writer is not None:
+			for k, v in meta.items():
+				try:
+					writer.add_scalar(f"train/{k}", v.item(), n_iter)
+				except OSError as err:
+					print(f"Disabling TensorBoard logging due to write error: {err}")  # noqa: T201
+					try:
+						writer.close()
+					except Exception:  # noqa: BLE001
+						pass
+					writer = None
+					break
 
 		if n_iter % config.n_save_states_iter == 0:
 			safe_save_states(
@@ -641,6 +652,12 @@ safe_save_states(
 	n_iter,
 	epoch,
 )
+
+if writer is not None:
+	try:
+		writer.close()
+	except Exception:  # noqa: BLE001
+		pass
 
 
 idx = 0
