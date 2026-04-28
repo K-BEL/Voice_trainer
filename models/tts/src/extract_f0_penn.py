@@ -19,6 +19,12 @@ parser.add_argument(
 	required=True,
 	help="Directory containing audio files",
 )
+parser.add_argument(
+	"--gpu",
+	type=int,
+	default=0,
+	help="CUDA device index to use. Set to -1 to force CPU.",
+)
 args = parser.parse_args()
 
 audios_dir = Path(args.audios_dir).absolute().resolve()
@@ -38,7 +44,7 @@ print(f"{len(wave_filepaths)} wave files found @ {waves_dir}")  # noqa: T201
 
 # PENN PARAMS
 hopsize = 0.01
-gpu = None
+gpu = args.gpu if args.gpu >= 0 and torch.cuda.is_available() else None
 batch_size = 1024
 checkpoint = None
 center = "half-hop"
@@ -76,7 +82,10 @@ def infer_pitch(wav, sr, thr=0.5, sr8k=True, batch_size=1024):  # noqa: ANN001, 
 
 
 if gpu is not None:
+	print(f"Using GPU cuda:{gpu} for F0 extraction")  # noqa: T201
 	mel_trf.to(f"cuda:{gpu}", non_blocking=True)
+else:
+	print("Using CPU for F0 extraction")  # noqa: T201
 
 
 for _i, wave_filepath in tqdm(
@@ -95,8 +104,6 @@ for _i, wave_filepath in tqdm(
 	wav = torch.from_numpy(wav)
 	if gpu is not None:
 		wav = wav.to(f"cuda:{gpu}", non_blocking=True)
-
-	mel_spec = mel_trf(wav.clone().detach()[None])[0]  # [mel_bands, T]
 
 	# estimate pitch
 	pitch_penn = infer_pitch(wav[None], sr, thr=0.5, sr8k=False)
