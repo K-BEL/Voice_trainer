@@ -146,7 +146,9 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	dataset_kwargs = {
 		"txtpath": config.train_labels,
 		"wavpath": config.train_wavs_path,
-		"label_pattern": config.label_pattern,
+		# Older tts-arabic-pytorch datasets require a named text field among:
+		# arabic / phonemes / buckwalter. "raw" is not accepted there.
+		"label_pattern": r"(?P<filename>[^,]*),(?P<arabic>.*)",
 		"f0_folder_path": config.f0_folder_path,
 		"f0_mean": config.f0_mean,
 		"f0_std": config.f0_std,
@@ -190,18 +192,22 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	candidate_configs = [
 		(
 			filtered_kwargs.get("txtpath", dataset_kwargs["txtpath"]),
-			filtered_kwargs.get("label_pattern", dataset_kwargs["label_pattern"]),
+			config.label_pattern,
+		),
+		(
+			filtered_kwargs.get("txtpath", dataset_kwargs["txtpath"]),
+			dataset_kwargs["label_pattern"],
 		),
 	]
 	if txtpath.suffix.lower() == ".csv" and txtpath.exists():
 		converted_paths = _convert_csv_labels_to_pipe(txtpath)
 		candidate_configs.extend([
-			(converted_paths["pipe2"], r"(?P<filename>[^|]*)\|(?P<raw>.*)"),
-			(converted_paths["pipe3mid"], r"(?P<filename>[^|]*)\|(?P<speaker>\d+)\|(?P<raw>.*)"),
-			(converted_paths["pipe3tail"], r"(?P<filename>[^|]*)\|(?P<raw>[^|]*)\|(?P<speaker>\d+)"),
-			(converted_paths["comma2"], r"(?P<filename>[^,]*),(?P<raw>.*)"),
-			(converted_paths["comma3mid"], r"(?P<filename>[^,]*),(?P<speaker>\d+),(?P<raw>.*)"),
-			(converted_paths["comma3tail"], r"(?P<filename>[^,]*),(?P<raw>[^,]*),(?P<speaker>\d+)"),
+			(converted_paths["pipe2"], r"(?P<filename>[^|]*)\|(?P<arabic>.*)"),
+			(converted_paths["pipe3mid"], r"(?P<filename>[^|]*)\|(?P<speaker>\d+)\|(?P<arabic>.*)"),
+			(converted_paths["pipe3tail"], r"(?P<filename>[^|]*)\|(?P<arabic>[^|]*)\|(?P<speaker>\d+)"),
+			(converted_paths["comma2"], r"(?P<filename>[^,]*),(?P<arabic>.*)"),
+			(converted_paths["comma3mid"], r"(?P<filename>[^,]*),(?P<speaker>\d+),(?P<arabic>.*)"),
+			(converted_paths["comma3tail"], r"(?P<filename>[^,]*),(?P<arabic>[^,]*),(?P<speaker>\d+)"),
 		])
 
 	seen = set()
