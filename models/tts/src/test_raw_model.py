@@ -44,11 +44,15 @@ texts = ["السلام عليكم صاحبي",
             "واش فراسك بلي كااع الناس كيتسناو فيك؟",
             "لا لا لا ا صاحبي، ماكاينش هاد القضية. راك مشيتي غالط و بعيد بزاااااف",  # noqa: RUF001
          ]
+import re
+
 for i, text in enumerate(texts):
+    # Strip punctuation to prevent KeyError in the phonemizer
+    clean_text = re.sub(r'[^\w\s]', '', text)
     try:
-        wave = model.tts(text, speaker_id=0, phonemize=False)
+        wave = model.tts(clean_text, speaker_id=0, phonemize=False)
     except TypeError:
-        wave = model.tts(text, speaker_id=0)
+        wave = model.tts(clean_text, speaker_id=0)
     # save the wave to a file
     wave = wave.unsqueeze(0)  # Add channel dimension if missing
     wav_path = os.path.join(out_dir, f"test-{i}.wav")  # noqa: PTH118
