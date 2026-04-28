@@ -58,6 +58,16 @@ def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
 		return critic(chunks)
 
 
+def _sanitize_tensor(t):  # noqa: ANN001, ANN201, D103
+	if torch.is_tensor(t) and t.is_floating_point():
+		return torch.nan_to_num(t, nan=0.0, posinf=1.0e4, neginf=-1.0e4)
+	return t
+
+
+def _is_finite_tensor(t):  # noqa: ANN001, ANN201, D103
+	return bool(torch.isfinite(t).all().item())
+
+
 def remove_silence_safe(energy_per_frame: torch.Tensor, thresh: float = -10.0):  # noqa: D103
 	# Some torchaudio/torchcodec combinations return shapes that make the
 	# legacy remove_silence implementation ambiguous (non-scalar bool tensors).
@@ -417,7 +427,8 @@ for epoch in range(n_epoch, config.epochs):
 	train_dataset.shuffle()
 	for batch in train_loader:
 		x, y, _ = batch_to_gpu(batch)
-		x = list(x)
+		x = [_sanitize_tensor(v) for v in x]
+		y = tuple(_sanitize_tensor(v) for v in y)
 		if x[6] is None:
 			# Legacy dataset variants may not provide speaker IDs.
 			x[6] = torch.zeros(x[0].size(0), dtype=torch.long, device=x[0].device)
@@ -481,6 +492,11 @@ for epoch in range(n_epoch, config.epochs):
 		d_gen, _ = critic_forward(critic, chunks_gen_.detach(), cond_vecs)
 
 		loss_d = 0.5 * (d_org - 1).square().mean() + 0.5 * d_gen.square().mean()
+		if not _is_finite_tensor(loss_d):
+			print("Skipping batch due to non-finite discriminator loss")  # noqa: T201
+			optimizer_d.zero_grad(set_to_none=True)
+			optimizer.zero_grad(set_to_none=True)
+			continue
 
 		critic.zero_grad()
 		loss_d.backward()
@@ -497,12 +513,23 @@ for epoch in range(n_epoch, config.epochs):
 		loss += config.feat_loss_weight * loss_fmatch
 
 		binarization_loss = attention_kl_loss(attn_hard, attn_soft)
+		if not _is_finite_tensor(binarization_loss):
+			binarization_loss = torch.zeros_like(loss)
 		loss += 1.0 * binarization_loss
+		if not _is_finite_tensor(loss):
+			print("Skipping batch due to non-finite generator loss")  # noqa: T201
+			optimizer.zero_grad(set_to_none=True)
+			continue
 
 		optimizer.zero_grad()
 		loss.backward()
 		grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1000.0)
-		optimizer.step()
+		if _is_finite_tensor(grad_norm):
+			optimizer.step()
+		else:
+			print("Skipping optimizer step due to non-finite gradient norm")  # noqa: T201
+			optimizer.zero_grad(set_to_none=True)
+			continue
 
 		# LOGGING
 		meta["loss_d"] = loss_d.detach()
