@@ -44,11 +44,35 @@ print(f"{len(wave_filepaths)} wave files found @ {waves_dir}")  # noqa: T201
 
 # PENN PARAMS
 hopsize = 0.01
-gpu = args.gpu if args.gpu >= 0 and torch.cuda.is_available() else None
 batch_size = 1024
 checkpoint = None
 center = "half-hop"
 interp_unvoiced_at = None
+
+
+def _resolve_gpu(gpu_index):  # noqa: ANN001, ANN201
+	"""Resolve whether CUDA can be used safely for this device."""
+	if gpu_index < 0 or not torch.cuda.is_available():
+		return None
+
+	try:
+		major, minor = torch.cuda.get_device_capability(gpu_index)
+		required_arch = f"sm_{major}{minor}"
+		supported_arches = set(torch.cuda.get_arch_list())
+	except Exception:  # noqa: BLE001
+		# If introspection fails, keep the user's choice.
+		return gpu_index
+
+	if required_arch not in supported_arches:
+		print(  # noqa: T201
+			f"CUDA arch {required_arch} is not supported by this PyTorch build; "
+			"falling back to CPU."
+		)
+		return None
+	return gpu_index
+
+
+gpu = _resolve_gpu(args.gpu)
 
 
 def infer_pitch(wav, sr, thr=0.5, sr8k=True, batch_size=1024):  # noqa: ANN001, ANN201, D103, FBT002
@@ -102,11 +126,25 @@ for _i, wave_filepath in tqdm(
 
 	wav, sr = librosa.load(wave_filepath, sr=mel_trf.sample_rate)
 	wav = torch.from_numpy(wav)
-	if gpu is not None:
+	run_on_gpu = gpu is not None
+	if run_on_gpu:
 		wav = wav.to(f"cuda:{gpu}", non_blocking=True)
 
-	# estimate pitch
-	pitch_penn = infer_pitch(wav[None], sr, thr=0.5, sr8k=False)
+	# estimate pitch (retry on CPU if runtime CUDA incompatibility is hit)
+	try:
+		pitch_penn = infer_pitch(wav[None], sr, thr=0.5, sr8k=False)
+	except RuntimeError as err:
+		if run_on_gpu and "no kernel image is available" in str(err):
+			print(  # noqa: T201
+				"Detected unsupported CUDA kernel at runtime; "
+				"switching to CPU for remaining files."
+			)
+			gpu = None
+			mel_trf.to("cpu")
+			wav_cpu = wav.detach().cpu()
+			pitch_penn = infer_pitch(wav_cpu[None], sr, thr=0.5, sr8k=False)
+		else:
+			raise
 	pitch_penn = torch.where(torch.isnan(pitch_penn), 0.0, pitch_penn)
 
 	pitch_penn = pitch_penn.to(device="cpu", non_blocking=True)
