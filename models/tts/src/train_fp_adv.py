@@ -121,19 +121,41 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	filtered_kwargs = {
 		key: value for key, value in dataset_kwargs.items() if key in supported_params
 	}
-	dataset = DynBatchDataset(**filtered_kwargs)
-	try:
-		dataset_len = len(dataset)
-	except Exception:  # noqa: BLE001
-		dataset_len = -1
 
-	if dataset_len == 0:
-		txtpath = Path(dataset_kwargs["txtpath"])
-		if txtpath.suffix.lower() == ".csv" and txtpath.exists():
-			pipe_txtpath = _convert_csv_labels_to_pipe(txtpath)
+	def _dataset_len_safe(ds):  # noqa: ANN001, ANN201, D103
+		try:
+			return len(ds)
+		except Exception:  # noqa: BLE001
+			return -1
+
+	def _try_build(kwargs):  # noqa: ANN001, ANN201, D103
+		ds = DynBatchDataset(**kwargs)
+		return ds, _dataset_len_safe(ds)
+
+	dataset, dataset_len = _try_build(filtered_kwargs)
+	if dataset_len > 0:
+		return dataset
+
+	txtpath = Path(dataset_kwargs["txtpath"])
+	if txtpath.suffix.lower() == ".csv" and txtpath.exists():
+		pipe_txtpath = _convert_csv_labels_to_pipe(txtpath)
+		if "txtpath" in supported_params:
 			filtered_kwargs["txtpath"] = pipe_txtpath
-			print("Dataset was empty with CSV labels; retrying with pipe metadata.")  # noqa: T201
-			dataset = DynBatchDataset(**filtered_kwargs)
+
+		# Try common label patterns used by older tts-arabic-pytorch snapshots.
+		pattern_candidates = [
+			r"(?P<filename>[^|]*)\|(?P<raw>.*)",
+			r"(?P<filename>[^\t]*)\t(?P<raw>.*)",
+			r"(?P<filename>[^,]*),(?P<raw>.*)",
+		]
+		for pattern in pattern_candidates:
+			if "label_pattern" in supported_params:
+				filtered_kwargs["label_pattern"] = pattern
+			print(f"Dataset empty; retrying with label_pattern: {pattern}")  # noqa: T201
+			dataset, dataset_len = _try_build(filtered_kwargs)
+			if dataset_len > 0:
+				return dataset
+
 	return dataset
 
 
