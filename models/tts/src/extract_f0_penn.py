@@ -6,7 +6,6 @@ from pathlib import Path
 
 import librosa
 import numpy as np
-import penn
 import torch
 import torchaudio
 from tqdm import tqdm
@@ -105,6 +104,37 @@ def infer_pitch(wav, sr, thr=0.5, sr8k=True, batch_size=1024):  # noqa: ANN001, 
 	return pitch_res[0]
 
 
+def infer_pitch_yin(wav, sr):  # noqa: ANN001, ANN201, D103
+	"""Fallback F0 extraction when penn/torbi backend is unavailable."""
+	wav_np = wav.detach().cpu().numpy().squeeze(0)
+	mel_spec = mel_trf(wav).detach()
+	tar_size = mel_spec.size(2)
+
+	yin_pitch = librosa.yin(
+		y=wav_np,
+		fmin=fmin,
+		fmax=fmax,
+		sr=sr,
+		frame_length=2048,
+		hop_length=int(sr * hopsize),
+	)
+	yin_pitch = np.nan_to_num(yin_pitch, nan=0.0, posinf=0.0, neginf=0.0)
+	pitch = torch.from_numpy(yin_pitch.astype(np.float32))[None, None]
+	pitch_res = torch.nn.functional.interpolate(pitch, size=tar_size)
+	return pitch_res[0]
+
+
+penn_backend = True
+try:
+	import penn
+except Exception as penn_import_error:  # noqa: BLE001
+	penn_backend = False
+	gpu = None
+	print(  # noqa: T201
+		"penn backend unavailable; using librosa.yin fallback. "
+		f"Reason: {penn_import_error}"
+	)
+
 if gpu is not None:
 	print(f"Using GPU cuda:{gpu} for F0 extraction")  # noqa: T201
 	mel_trf.to(f"cuda:{gpu}", non_blocking=True)
@@ -126,25 +156,28 @@ for _i, wave_filepath in tqdm(
 
 	wav, sr = librosa.load(wave_filepath, sr=mel_trf.sample_rate)
 	wav = torch.from_numpy(wav)
-	run_on_gpu = gpu is not None
+	run_on_gpu = penn_backend and gpu is not None
 	if run_on_gpu:
 		wav = wav.to(f"cuda:{gpu}", non_blocking=True)
 
-	# estimate pitch (retry on CPU if runtime CUDA incompatibility is hit)
-	try:
-		pitch_penn = infer_pitch(wav[None], sr, thr=0.5, sr8k=False)
-	except RuntimeError as err:
-		if run_on_gpu and "no kernel image is available" in str(err):
-			print(  # noqa: T201
-				"Detected unsupported CUDA kernel at runtime; "
-				"switching to CPU for remaining files."
-			)
-			gpu = None
-			mel_trf.to("cpu")
-			wav_cpu = wav.detach().cpu()
-			pitch_penn = infer_pitch(wav_cpu[None], sr, thr=0.5, sr8k=False)
-		else:
-			raise
+	# estimate pitch (penn primary path, librosa.yin fallback path)
+	if penn_backend:
+		try:
+			pitch_penn = infer_pitch(wav[None], sr, thr=0.5, sr8k=False)
+		except RuntimeError as err:
+			if run_on_gpu and "no kernel image is available" in str(err):
+				print(  # noqa: T201
+					"Detected unsupported CUDA kernel at runtime; "
+					"switching to CPU for remaining files."
+				)
+				gpu = None
+				mel_trf.to("cpu")
+				wav_cpu = wav.detach().cpu()
+				pitch_penn = infer_pitch(wav_cpu[None], sr, thr=0.5, sr8k=False)
+			else:
+				raise
+	else:
+		pitch_penn = infer_pitch_yin(wav[None], sr)
 	pitch_penn = torch.where(torch.isnan(pitch_penn), 0.0, pitch_penn)
 
 	pitch_penn = pitch_penn.to(device="cpu", non_blocking=True)
@@ -190,7 +223,7 @@ with open(f"mean_std_{timestamp}.txt", "w") as f:
 	f.write("\n".join([
 		f"dir: {pitches_dir}",
 		f"nfiles: {len(pitch_filepaths)}",
-		"method: penn",
+		f"method: {'penn' if penn_backend else 'librosa.yin'}",
 		f"mean: {mean}",
 		f"std: {std}",
 	]) + "\n")
