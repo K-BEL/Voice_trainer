@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+from utils import data as data_utils
 from utils import get_config
 from utils.data import DynBatchDataset
 from utils.training import save_states_gan as save_states
@@ -50,6 +51,25 @@ def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
 		return critic(chunks, cond_vecs)
 	except TypeError:
 		return critic(chunks)
+
+
+def remove_silence_safe(energy_per_frame: torch.Tensor, thresh: float = -10.0):  # noqa: D103
+	# Some torchaudio/torchcodec combinations return shapes that make the
+	# legacy remove_silence implementation ambiguous (non-scalar bool tensors).
+	if energy_per_frame.ndim > 1:
+		for _ in range(energy_per_frame.ndim - 1):
+			energy_per_frame = energy_per_frame.mean(0)
+
+	keep = (energy_per_frame > thresh).reshape(-1)
+	i = keep.numel() - 1
+	while i > 0 and not bool(keep[i].item()):
+		keep[i] = True
+		i -= 1
+	return keep
+
+
+# Patch legacy utility function for compatibility with newer stacks.
+data_utils.remove_silence = remove_silence_safe
 
 
 def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
