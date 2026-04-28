@@ -68,6 +68,22 @@ def _is_finite_tensor(t):  # noqa: ANN001, ANN201, D103
 	return bool(torch.isfinite(t).all().item())
 
 
+def _sanitize_gradients(parameters):  # noqa: ANN001, ANN201, D103
+	changed = 0
+	for param in parameters:
+		if param.grad is None or not torch.is_tensor(param.grad):
+			continue
+		if not torch.isfinite(param.grad).all():
+			param.grad = torch.nan_to_num(
+				param.grad,
+				nan=0.0,
+				posinf=0.0,
+				neginf=0.0,
+			)
+			changed += 1
+	return changed
+
+
 def remove_silence_safe(energy_per_frame: torch.Tensor, thresh: float = -10.0):  # noqa: D103
 	# Some torchaudio/torchcodec combinations return shapes that make the
 	# legacy remove_silence implementation ambiguous (non-scalar bool tensors).
@@ -388,6 +404,7 @@ optimizer_d = torch.optim.AdamW(
 chunk_len = 128
 resume_optimizers = os.environ.get("VT_RESUME_OPTIMIZERS", "0") == "1"
 resume_progress = os.environ.get("VT_RESUME_PROGRESS", "0") == "1"
+gan_warmup_iters = int(os.environ.get("VT_GAN_WARMUP_ITERS", "1000"))
 
 # resume from existing checkpoint
 n_epoch, n_iter = 0, 0
@@ -510,9 +527,10 @@ for epoch in range(n_epoch, config.epochs):
 		d_gen2, fmaps_gen = critic_forward(critic, chunks_gen_, cond_vecs)
 		loss_score = (d_gen2 - 1).square().mean()
 		loss_fmatch = calc_feature_match_loss(fmaps_gen, fmaps_org)
-
-		loss += config.gan_loss_weight * loss_score
-		loss += config.feat_loss_weight * loss_fmatch
+		gan_weight = config.gan_loss_weight if n_iter >= gan_warmup_iters else 0.0
+		feat_weight = config.feat_loss_weight if n_iter >= gan_warmup_iters else 0.0
+		loss += gan_weight * loss_score
+		loss += feat_weight * loss_fmatch
 
 		binarization_loss = attention_kl_loss(attn_hard, attn_soft)
 		if not _is_finite_tensor(binarization_loss):
@@ -525,6 +543,9 @@ for epoch in range(n_epoch, config.epochs):
 
 		optimizer.zero_grad()
 		loss.backward()
+		sanitized = _sanitize_gradients(model.parameters())
+		if sanitized > 0:
+			print(f"Sanitized non-finite gradients for {sanitized} parameters")  # noqa: T201
 		grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1000.0)
 		if _is_finite_tensor(grad_norm):
 			optimizer.step()
