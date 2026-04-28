@@ -381,9 +381,15 @@ if config.restore_model != "":
 	if "model_d" in state_dicts:
 		critic.load_state_dict(state_dicts["model_d"], strict=False)
 	if "optim" in state_dicts:
-		optimizer.load_state_dict(state_dicts["optim"])
+		try:
+			optimizer.load_state_dict(state_dicts["optim"])
+		except ValueError as err:
+			print(f"Skipping incompatible generator optimizer state: {err}")  # noqa: T201
 	if "optim_d" in state_dicts:
-		optimizer_d.load_state_dict(state_dicts["optim_d"])
+		try:
+			optimizer_d.load_state_dict(state_dicts["optim_d"])
+		except ValueError as err:
+			print(f"Skipping incompatible discriminator optimizer state: {err}")  # noqa: T201
 	if "epoch" in state_dicts:
 		n_epoch = state_dicts["epoch"]
 	if "iter" in state_dicts:
