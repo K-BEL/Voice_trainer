@@ -1,4 +1,5 @@
 import argparse  # noqa: D100
+import csv
 import inspect
 import os
 from pathlib import Path
@@ -52,6 +53,24 @@ def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
 
 
 def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
+	def _convert_csv_labels_to_pipe(csv_path):  # noqa: ANN001, ANN201, D103
+		csv_file = Path(csv_path)
+		pipe_file = csv_file.with_suffix(".pipe.txt")
+		if pipe_file.exists():
+			return pipe_file.as_posix()
+
+		with csv_file.open("r", encoding="utf-8", newline="") as src, pipe_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst:
+			reader = csv.DictReader(src)
+			for row in reader:
+				audio = (row.get("audio") or "").strip()
+				caption = (row.get("caption") or "").replace("\n", " ").strip()
+				if audio:
+					dst.write(f"{audio}|{caption}\n")
+		print(f"Built pipe metadata at {pipe_file}")  # noqa: T201
+		return pipe_file.as_posix()
+
 	def _build_pitch_dict_file(f0_folder_path, f0_dict_path):  # noqa: ANN001, ANN201, D103
 		f0_folder = Path(f0_folder_path)
 		f0_dict_file = Path(f0_dict_path)
@@ -102,7 +121,20 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	filtered_kwargs = {
 		key: value for key, value in dataset_kwargs.items() if key in supported_params
 	}
-	return DynBatchDataset(**filtered_kwargs)
+	dataset = DynBatchDataset(**filtered_kwargs)
+	try:
+		dataset_len = len(dataset)
+	except Exception:  # noqa: BLE001
+		dataset_len = -1
+
+	if dataset_len == 0:
+		txtpath = Path(dataset_kwargs["txtpath"])
+		if txtpath.suffix.lower() == ".csv" and txtpath.exists():
+			pipe_txtpath = _convert_csv_labels_to_pipe(txtpath)
+			filtered_kwargs["txtpath"] = pipe_txtpath
+			print("Dataset was empty with CSV labels; retrying with pipe metadata.")  # noqa: T201
+			dataset = DynBatchDataset(**filtered_kwargs)
+	return dataset
 
 
 device = "cuda:0"
