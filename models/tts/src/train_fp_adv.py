@@ -409,6 +409,11 @@ for epoch in range(n_epoch, config.epochs):
 	train_dataset.shuffle()
 	for batch in train_loader:
 		x, y, _ = batch_to_gpu(batch)
+		x = list(x)
+		if x[6] is None:
+			# Legacy dataset variants may not provide speaker IDs.
+			x[6] = torch.zeros(x[0].size(0), dtype=torch.long, device=x[0].device)
+		x = tuple(x)
 
 		y_pred = model(x)
 
