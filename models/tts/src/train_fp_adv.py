@@ -1,4 +1,5 @@
 import argparse  # noqa: D100
+import inspect
 import os
 
 import matplotlib.pyplot as plt
@@ -49,6 +50,24 @@ def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
 		return critic(chunks)
 
 
+def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
+	dataset_kwargs = {
+		"txtpath": config.train_labels,
+		"wavpath": config.train_wavs_path,
+		"label_pattern": config.label_pattern,
+		"f0_folder_path": config.f0_folder_path,
+		"f0_mean": config.f0_mean,
+		"f0_std": config.f0_std,
+		"max_lengths": config.max_lengths,
+		"batch_sizes": config.batch_sizes,
+	}
+	supported_params = set(inspect.signature(DynBatchDataset.__init__).parameters)
+	filtered_kwargs = {
+		key: value for key, value in dataset_kwargs.items() if key in supported_params
+	}
+	return DynBatchDataset(**filtered_kwargs)
+
+
 device = "cuda:0"
 torch.cuda.set_device(device)
 
@@ -75,16 +94,7 @@ if not os.path.isdir(config.checkpoint_dir):  # noqa: PTH112
 	print(f"Created checkpoint folder @ {config.checkpoint_dir}")  # noqa: T201
 
 
-train_dataset = DynBatchDataset(
-	txtpath=config.train_labels,
-	wavpath=config.train_wavs_path,
-	label_pattern=config.label_pattern,
-	f0_folder_path=config.f0_folder_path,
-	f0_mean=config.f0_mean,
-	f0_std=config.f0_std,
-	max_lengths=config.max_lengths,
-	batch_sizes=config.batch_sizes,
-)
+train_dataset = build_train_dataset(config)
 
 
 collate_fn = TTSCollate()
