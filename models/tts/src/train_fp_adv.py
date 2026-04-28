@@ -57,7 +57,7 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 		csv_file = Path(csv_path)
 		pipe_file = csv_file.with_suffix(".pipe.txt")
 		pipe3_file = csv_file.with_suffix(".pipe3.txt")
-		if pipe_file.exists():
+		if pipe_file.exists() and pipe3_file.exists():
 			return pipe_file.as_posix(), pipe3_file.as_posix()
 
 		with csv_file.open("r", encoding="utf-8", newline="") as src, pipe_file.open(
@@ -132,8 +132,12 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 			return -1
 
 	def _try_build(kwargs):  # noqa: ANN001, ANN201, D103
-		ds = DynBatchDataset(**kwargs)
-		return ds, _dataset_len_safe(ds)
+		try:
+			ds = DynBatchDataset(**kwargs)
+			return ds, _dataset_len_safe(ds)
+		except FileNotFoundError as err:
+			print(f"Dataset build skipped (missing file): {err}")  # noqa: T201
+			return None, -1
 
 	dataset, dataset_len = _try_build(filtered_kwargs)
 	if dataset_len > 0:
