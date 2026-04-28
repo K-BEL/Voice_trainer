@@ -135,9 +135,29 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 		}
 
 	def _build_pitch_dict_file(f0_folder_path, f0_dict_path):  # noqa: ANN001, ANN201, D103
+		def _normalize_pitch_tensor(pitch_tensor):  # noqa: ANN001, ANN201, D103
+			pitch_tensor = torch.as_tensor(pitch_tensor, device="cpu").float().reshape(-1)
+			return pitch_tensor
+
+		def _pitch_dict_needs_rebuild(f0_dict_file):  # noqa: ANN001, ANN201, D103
+			if not f0_dict_file.exists():
+				return True
+			try:
+				existing = torch.load(f0_dict_file, map_location="cpu")
+				if not isinstance(existing, dict) or not existing:
+					return True
+				first_value = next(iter(existing.values()))
+				first_tensor = torch.as_tensor(first_value, device="cpu")
+				# Upstream loader does self.f0_dict[wav_name][None] and expects [1, T].
+				return first_tensor.ndim != 1
+			except Exception:  # noqa: BLE001
+				return True
+
 		f0_folder = Path(f0_folder_path)
 		f0_dict_file = Path(f0_dict_path)
-		if f0_dict_file.exists() or not f0_folder.exists():
+		if not f0_folder.exists():
+			return
+		if not _pitch_dict_needs_rebuild(f0_dict_file):
 			return
 
 		f0_dict_file.parent.mkdir(parents=True, exist_ok=True)
@@ -147,7 +167,9 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 			audio_rel = rel[:-4] if rel.endswith(".pth") else rel
 			basename = Path(audio_rel).name
 			stem = Path(audio_rel).stem
-			pitch_tensor = torch.load(pitch_file, map_location="cpu")
+			pitch_tensor = _normalize_pitch_tensor(
+				torch.load(pitch_file, map_location="cpu")
+			)
 
 			# Support common lookup styles used by different dataset versions.
 			for key in (
