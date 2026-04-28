@@ -1,8 +1,10 @@
 import argparse  # noqa: D100
 import csv
+import gc
 import inspect
 import os
 from pathlib import Path
+import time
 
 import matplotlib.pyplot as plt
 import torch
@@ -440,6 +442,45 @@ else:
 writer = SummaryWriter(config.log_dir)
 
 
+def safe_save_states(filename, model, critic, optimizer, optimizer_d, n_iter, epoch):  # noqa: ANN001, ANN201, D103
+	try:
+		save_states(
+			filename,
+			model,
+			critic,
+			optimizer,
+			optimizer_d,
+			n_iter,
+			epoch,
+			net_config,
+			config,
+		)
+		return True
+	except RuntimeError as err:
+		print(f"Checkpoint save failed for {filename}: {err}")  # noqa: T201
+		# Best-effort retry for transient I/O hiccups.
+		time.sleep(1.0)
+		gc.collect()
+		torch.cuda.empty_cache()
+		try:
+			save_states(
+				filename,
+				model,
+				critic,
+				optimizer,
+				optimizer_d,
+				n_iter,
+				epoch,
+				net_config,
+				config,
+			)
+			print(f"Checkpoint save retry succeeded for {filename}")  # noqa: T201
+			return True
+		except RuntimeError as retry_err:
+			print(f"Checkpoint retry failed for {filename}: {retry_err}")  # noqa: T201
+			return False
+
+
 model.train()
 
 for epoch in range(n_epoch, config.epochs):
@@ -567,7 +608,7 @@ for epoch in range(n_epoch, config.epochs):
 			writer.add_scalar(f"train/{k}", v.item(), n_iter)
 
 		if n_iter % config.n_save_states_iter == 0:
-			save_states(
+			safe_save_states(
 				"states.pth",
 				model,
 				critic,
@@ -575,12 +616,10 @@ for epoch in range(n_epoch, config.epochs):
 				optimizer_d,
 				n_iter,
 				epoch,
-				net_config,
-				config,
 			)
 
 		if n_iter % config.n_save_backup_iter == 0 and n_iter > 0:
-			save_states(
+			safe_save_states(
 				f"states_{n_iter}.pth",
 				model,
 				critic,
@@ -588,14 +627,12 @@ for epoch in range(n_epoch, config.epochs):
 				optimizer_d,
 				n_iter,
 				epoch,
-				net_config,
-				config,
 			)
 
 		n_iter += 1
 
 
-save_states(
+safe_save_states(
 	"states.pth",
 	model,
 	critic,
@@ -603,8 +640,6 @@ save_states(
 	optimizer_d,
 	n_iter,
 	epoch,
-	net_config,
-	config,
 )
 
 
