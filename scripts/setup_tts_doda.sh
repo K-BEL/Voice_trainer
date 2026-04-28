@@ -94,19 +94,15 @@ pip install --upgrade pip --quiet
 
 # Install PyTorch with CUDA support first (skip if already installed)
 if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-    echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch 2.4 with CUDA 12.1..."
-    pip install --no-cache-dir torch==2.4.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+    echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch 2.6.0 with CUDA 12.4..."
+    pip install --no-cache-dir torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
 else
     echo "   ✅ PyTorch with CUDA already installed."
 fi
 
 # Install project requirements
-# Note: torbi (dependency of penn) has no precompiled binaries for this CUDA version,
-# so we build it from source (requires nvcc / CUDA toolkit).
-# --no-build-isolation reuses the already-installed PyTorch instead of downloading a second copy.
-echo "   Building torbi from source (penn dependency)..."
-pip install --no-cache-dir ninja numpy setuptools  # build deps for torbi
-pip install --no-cache-dir torbi --no-binary torbi --no-build-isolation
+echo "   Installing dependencies..."
+pip install --no-cache-dir torbi  # Uses precompiled wheel for PyTorch 2.6 + CUDA 12.4
 pip install --no-cache-dir -r "$ROOT_DIR/requirements.txt"
 
 
