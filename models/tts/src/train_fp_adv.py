@@ -384,7 +384,10 @@ if config.restore_model != "":
 	state_dicts = torch.load(config.restore_model, map_location=device)
 	model.load_state_dict(state_dicts["model"])
 	if "model_d" in state_dicts:
-		critic.load_state_dict(state_dicts["model_d"], strict=False)
+		try:
+			critic.load_state_dict(state_dicts["model_d"], strict=False)
+		except RuntimeError as err:
+			print(f"Skipping incompatible discriminator model state: {err}")  # noqa: T201
 	if "optim" in state_dicts:
 		try:
 			optimizer.load_state_dict(state_dicts["optim"])
