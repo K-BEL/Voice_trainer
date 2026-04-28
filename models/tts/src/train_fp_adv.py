@@ -386,6 +386,8 @@ optimizer_d = torch.optim.AdamW(
 	weight_decay=config.weight_decay,
 )
 chunk_len = 128
+resume_optimizers = os.environ.get("VT_RESUME_OPTIMIZERS", "0") == "1"
+resume_progress = os.environ.get("VT_RESUME_PROGRESS", "0") == "1"
 
 # resume from existing checkpoint
 n_epoch, n_iter = 0, 0
@@ -398,19 +400,19 @@ if config.restore_model != "":
 			critic.load_state_dict(state_dicts["model_d"], strict=False)
 		except RuntimeError as err:
 			print(f"Skipping incompatible discriminator model state: {err}")  # noqa: T201
-	if "optim" in state_dicts:
+	if resume_optimizers and "optim" in state_dicts:
 		try:
 			optimizer.load_state_dict(state_dicts["optim"])
 		except ValueError as err:
 			print(f"Skipping incompatible generator optimizer state: {err}")  # noqa: T201
-	if "optim_d" in state_dicts:
+	if resume_optimizers and "optim_d" in state_dicts:
 		try:
 			optimizer_d.load_state_dict(state_dicts["optim_d"])
 		except ValueError as err:
 			print(f"Skipping incompatible discriminator optimizer state: {err}")  # noqa: T201
-	if "epoch" in state_dicts:
+	if resume_progress and "epoch" in state_dicts:
 		n_epoch = state_dicts["epoch"]
-	if "iter" in state_dicts:
+	if resume_progress and "iter" in state_dicts:
 		n_iter = state_dicts["iter"]
 else:
 	model_sd = torch.load("G:/models/fastpitch/nvidia_fastpitch_210824+cfg.pt")
