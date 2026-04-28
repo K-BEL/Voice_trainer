@@ -56,23 +56,63 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	def _convert_csv_labels_to_pipe(csv_path):  # noqa: ANN001, ANN201, D103
 		csv_file = Path(csv_path)
 		pipe_file = csv_file.with_suffix(".pipe.txt")
+		pipe3_mid_file = csv_file.with_suffix(".pipe3mid.txt")
 		pipe3_file = csv_file.with_suffix(".pipe3.txt")
-		if pipe_file.exists() and pipe3_file.exists():
-			return pipe_file.as_posix(), pipe3_file.as_posix()
+		comma_file = csv_file.with_suffix(".comma.txt")
+		comma3_mid_file = csv_file.with_suffix(".comma3mid.txt")
+		comma3_file = csv_file.with_suffix(".comma3.txt")
+		if (
+			pipe_file.exists()
+			and pipe3_mid_file.exists()
+			and pipe3_file.exists()
+			and comma_file.exists()
+			and comma3_mid_file.exists()
+			and comma3_file.exists()
+		):
+			return {
+				"pipe2": pipe_file.as_posix(),
+				"pipe3mid": pipe3_mid_file.as_posix(),
+				"pipe3tail": pipe3_file.as_posix(),
+				"comma2": comma_file.as_posix(),
+				"comma3mid": comma3_mid_file.as_posix(),
+				"comma3tail": comma3_file.as_posix(),
+			}
 
 		with csv_file.open("r", encoding="utf-8", newline="") as src, pipe_file.open(
 			"w", encoding="utf-8", newline=""
-		) as dst, pipe3_file.open("w", encoding="utf-8", newline="") as dst3:
+		) as dst, pipe3_mid_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst3_mid, pipe3_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst3_tail, comma_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst_comma, comma3_mid_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst_comma3_mid, comma3_file.open(
+			"w", encoding="utf-8", newline=""
+		) as dst_comma3_tail:
 			reader = csv.DictReader(src)
 			for row in reader:
 				audio = (row.get("audio") or "").strip()
 				caption = (row.get("caption") or "").replace("\n", " ").strip()
 				if audio:
 					dst.write(f"{audio}|{caption}\n")
-					dst3.write(f"{audio}|{caption}|0\n")
+					dst3_mid.write(f"{audio}|0|{caption}\n")
+					dst3_tail.write(f"{audio}|{caption}|0\n")
+					dst_comma.write(f"{audio},{caption}\n")
+					dst_comma3_mid.write(f"{audio},0,{caption}\n")
+					dst_comma3_tail.write(f"{audio},{caption},0\n")
 		print(f"Built pipe metadata at {pipe_file}")  # noqa: T201
+		print(f"Built pipe3-mid metadata at {pipe3_mid_file}")  # noqa: T201
 		print(f"Built pipe3 metadata at {pipe3_file}")  # noqa: T201
-		return pipe_file.as_posix(), pipe3_file.as_posix()
+		return {
+			"pipe2": pipe_file.as_posix(),
+			"pipe3mid": pipe3_mid_file.as_posix(),
+			"pipe3tail": pipe3_file.as_posix(),
+			"comma2": comma_file.as_posix(),
+			"comma3mid": comma3_mid_file.as_posix(),
+			"comma3tail": comma3_file.as_posix(),
+		}
 
 	def _build_pitch_dict_file(f0_folder_path, f0_dict_path):  # noqa: ANN001, ANN201, D103
 		f0_folder = Path(f0_folder_path)
@@ -138,44 +178,50 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 		except FileNotFoundError as err:
 			print(f"Dataset build skipped (missing file): {err}")  # noqa: T201
 			return None, -1
+		except Exception as err:  # noqa: BLE001
+			print(f"Dataset build failed for current format: {err}")  # noqa: T201
+			return None, -1
 
 	dataset, dataset_len = _try_build(filtered_kwargs)
 	if dataset_len > 0:
 		return dataset
 
 	txtpath = Path(dataset_kwargs["txtpath"])
-	candidate_txtpaths = [filtered_kwargs.get("txtpath", dataset_kwargs["txtpath"])]
-	if txtpath.suffix.lower() == ".csv" and txtpath.exists():
-		pipe_txtpath, pipe3_txtpath = _convert_csv_labels_to_pipe(txtpath)
-		candidate_txtpaths.extend([pipe_txtpath, pipe3_txtpath])
-
-	# Try common label patterns used by older tts-arabic-pytorch snapshots.
-	pattern_candidates = [
-		filtered_kwargs.get("label_pattern", dataset_kwargs["label_pattern"]),
-		r"(?P<filename>[^|]*)\|(?P<raw>[^|]*)\|(?P<speaker>\d+)",
-		r"(?P<filename>[^|]*)\|(?P<raw>.*)",
-		r"(?P<filename>[^\t]*)\t(?P<raw>.*)",
-		r"(?P<filename>[^,]*),(?P<raw>.*)",
+	candidate_configs = [
+		(
+			filtered_kwargs.get("txtpath", dataset_kwargs["txtpath"]),
+			filtered_kwargs.get("label_pattern", dataset_kwargs["label_pattern"]),
+		),
 	]
+	if txtpath.suffix.lower() == ".csv" and txtpath.exists():
+		converted_paths = _convert_csv_labels_to_pipe(txtpath)
+		candidate_configs.extend([
+			(converted_paths["pipe2"], r"(?P<filename>[^|]*)\|(?P<raw>.*)"),
+			(converted_paths["pipe3mid"], r"(?P<filename>[^|]*)\|(?P<speaker>\d+)\|(?P<raw>.*)"),
+			(converted_paths["pipe3tail"], r"(?P<filename>[^|]*)\|(?P<raw>[^|]*)\|(?P<speaker>\d+)"),
+			(converted_paths["comma2"], r"(?P<filename>[^,]*),(?P<raw>.*)"),
+			(converted_paths["comma3mid"], r"(?P<filename>[^,]*),(?P<speaker>\d+),(?P<raw>.*)"),
+			(converted_paths["comma3tail"], r"(?P<filename>[^,]*),(?P<raw>[^,]*),(?P<speaker>\d+)"),
+		])
+
 	seen = set()
-	for candidate_txtpath in candidate_txtpaths:
+	for candidate_txtpath, pattern in candidate_configs:
 		if "txtpath" in supported_params:
 			filtered_kwargs["txtpath"] = candidate_txtpath
-		for pattern in pattern_candidates:
-			key = (filtered_kwargs.get("txtpath"), pattern)
-			if key in seen:
-				continue
-			seen.add(key)
-			if "label_pattern" in supported_params:
-				filtered_kwargs["label_pattern"] = pattern
-			print(  # noqa: T201
-				"Dataset empty; retrying with "
-				f"txtpath={filtered_kwargs.get('txtpath')} "
-				f"label_pattern={pattern}"
-			)
-			dataset, dataset_len = _try_build(filtered_kwargs)
-			if dataset_len > 0:
-				return dataset
+		key = (filtered_kwargs.get("txtpath"), pattern)
+		if key in seen:
+			continue
+		seen.add(key)
+		if "label_pattern" in supported_params:
+			filtered_kwargs["label_pattern"] = pattern
+		print(  # noqa: T201
+			"Dataset empty; retrying with "
+			f"txtpath={filtered_kwargs.get('txtpath')} "
+			f"label_pattern={pattern}"
+		)
+		dataset, dataset_len = _try_build(filtered_kwargs)
+		if dataset_len > 0:
+			return dataset
 
 	return dataset
 
