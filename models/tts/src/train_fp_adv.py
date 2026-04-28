@@ -56,20 +56,23 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 	def _convert_csv_labels_to_pipe(csv_path):  # noqa: ANN001, ANN201, D103
 		csv_file = Path(csv_path)
 		pipe_file = csv_file.with_suffix(".pipe.txt")
+		pipe3_file = csv_file.with_suffix(".pipe3.txt")
 		if pipe_file.exists():
-			return pipe_file.as_posix()
+			return pipe_file.as_posix(), pipe3_file.as_posix()
 
 		with csv_file.open("r", encoding="utf-8", newline="") as src, pipe_file.open(
 			"w", encoding="utf-8", newline=""
-		) as dst:
+		) as dst, pipe3_file.open("w", encoding="utf-8", newline="") as dst3:
 			reader = csv.DictReader(src)
 			for row in reader:
 				audio = (row.get("audio") or "").strip()
 				caption = (row.get("caption") or "").replace("\n", " ").strip()
 				if audio:
 					dst.write(f"{audio}|{caption}\n")
+					dst3.write(f"{audio}|{caption}|0\n")
 		print(f"Built pipe metadata at {pipe_file}")  # noqa: T201
-		return pipe_file.as_posix()
+		print(f"Built pipe3 metadata at {pipe3_file}")  # noqa: T201
+		return pipe_file.as_posix(), pipe3_file.as_posix()
 
 	def _build_pitch_dict_file(f0_folder_path, f0_dict_path):  # noqa: ANN001, ANN201, D103
 		f0_folder = Path(f0_folder_path)
@@ -137,21 +140,35 @@ def build_train_dataset(config):  # noqa: ANN001, ANN201, D103
 		return dataset
 
 	txtpath = Path(dataset_kwargs["txtpath"])
+	candidate_txtpaths = [filtered_kwargs.get("txtpath", dataset_kwargs["txtpath"])]
 	if txtpath.suffix.lower() == ".csv" and txtpath.exists():
-		pipe_txtpath = _convert_csv_labels_to_pipe(txtpath)
-		if "txtpath" in supported_params:
-			filtered_kwargs["txtpath"] = pipe_txtpath
+		pipe_txtpath, pipe3_txtpath = _convert_csv_labels_to_pipe(txtpath)
+		candidate_txtpaths.extend([pipe_txtpath, pipe3_txtpath])
 
-		# Try common label patterns used by older tts-arabic-pytorch snapshots.
-		pattern_candidates = [
-			r"(?P<filename>[^|]*)\|(?P<raw>.*)",
-			r"(?P<filename>[^\t]*)\t(?P<raw>.*)",
-			r"(?P<filename>[^,]*),(?P<raw>.*)",
-		]
+	# Try common label patterns used by older tts-arabic-pytorch snapshots.
+	pattern_candidates = [
+		filtered_kwargs.get("label_pattern", dataset_kwargs["label_pattern"]),
+		r"(?P<filename>[^|]*)\|(?P<raw>[^|]*)\|(?P<speaker>\d+)",
+		r"(?P<filename>[^|]*)\|(?P<raw>.*)",
+		r"(?P<filename>[^\t]*)\t(?P<raw>.*)",
+		r"(?P<filename>[^,]*),(?P<raw>.*)",
+	]
+	seen = set()
+	for candidate_txtpath in candidate_txtpaths:
+		if "txtpath" in supported_params:
+			filtered_kwargs["txtpath"] = candidate_txtpath
 		for pattern in pattern_candidates:
+			key = (filtered_kwargs.get("txtpath"), pattern)
+			if key in seen:
+				continue
+			seen.add(key)
 			if "label_pattern" in supported_params:
 				filtered_kwargs["label_pattern"] = pattern
-			print(f"Dataset empty; retrying with label_pattern: {pattern}")  # noqa: T201
+			print(  # noqa: T201
+				"Dataset empty; retrying with "
+				f"txtpath={filtered_kwargs.get('txtpath')} "
+				f"label_pattern={pattern}"
+			)
 			dataset, dataset_len = _try_build(filtered_kwargs)
 			if dataset_len > 0:
 				return dataset
