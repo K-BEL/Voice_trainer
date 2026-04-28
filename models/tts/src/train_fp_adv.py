@@ -3,7 +3,6 @@ import os
 
 import matplotlib.pyplot as plt
 import torch
-from text import tokenizer_raw
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from utils import get_config
@@ -22,6 +21,11 @@ from models.fastpitch.fastpitch.attn_loss_function import AttentionBinarizationL
 from models.fastpitch.fastpitch.data_function import TTSCollate, batch_to_gpu
 from models.fastpitch.fastpitch.loss_function import FastPitchLoss
 from models.fastpitch.fastpitch.model import FastPitch
+
+try:
+	from text import tokenizer_raw
+except ImportError:
+	tokenizer_raw = None
 
 device = "cuda:0"
 torch.cuda.set_device(device)
@@ -305,19 +309,21 @@ plt.imshow(mel_out[0].cpu(), aspect="auto", origin="lower")
 plt.plot(wave[0].cpu())
 
 
-phrase = "أَتَاحَتْ لِلبَائِعِ المُتَجَوِّلِ أنْ يَكُونَ جَاذِباً لِلمُوَاطِنِ الأقَلِّ دَخْلاً"
+if tokenizer_raw is not None:
+	phrase = "أَتَاحَتْ لِلبَائِعِ المُتَجَوِّلِ أنْ يَكُونَ جَاذِباً لِلمُوَاطِنِ الأقَلِّ دَخْلاً"
 
-token_ids = x[0][idx : idx + 1]
-token_ids = torch.LongTensor(tokenizer_raw(" " + phrase + ". "))[None].cuda()
+	token_ids = x[0][idx : idx + 1]
+	token_ids = torch.LongTensor(tokenizer_raw(" " + phrase + ". "))[None].cuda()
 
+	with torch.inference_mode():
+		(mel_out, dec_lens, dur_pred, pitch_pred, energy_pred) = model.infer(
+			token_ids,
+			pace=1,
+			speaker=1,
+		)
 
-with torch.inference_mode():
-	(mel_out, dec_lens, dur_pred, pitch_pred, energy_pred) = model.infer(
-		token_ids,
-		pace=1,
-		speaker=1,
-	)
-
-	wave = vocoder(mel_out[0])
-	wave_ = denoiser(wave, 0.003)
-	wave_ /= wave_.abs().max()
+		wave = vocoder(mel_out[0])
+		wave_ = denoiser(wave, 0.003)
+		wave_ /= wave_.abs().max()
+else:
+	print("tokenizer_raw not found; skipping final phrase synthesis demo.")  # noqa: T201
