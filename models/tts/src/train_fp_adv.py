@@ -11,11 +11,13 @@ from utils.training import save_states_gan as save_states
 from vocoder import load_hifigan
 from vocoder.hifigan.denoiser import Denoiser
 
-from models.common.loss import (
-	PatchDiscriminatorCond,
-	calc_feature_match_loss,
-	extract_chunks,
-)
+from models.common.loss import calc_feature_match_loss, extract_chunks
+try:
+	from models.common.loss import PatchDiscriminatorCond as PatchDiscriminatorClass
+	critic_uses_conditioning = True
+except ImportError:
+	from models.common.loss import PatchDiscriminator as PatchDiscriminatorClass
+	critic_uses_conditioning = False
 from models.fastpitch import net_config
 from models.fastpitch.fastpitch.attn_loss_function import AttentionBinarizationLoss
 from models.fastpitch.fastpitch.data_function import TTSCollate, batch_to_gpu
@@ -26,6 +28,26 @@ try:
 	from text import tokenizer_raw
 except ImportError:
 	tokenizer_raw = None
+
+
+def build_critic(device):  # noqa: ANN001, ANN201, D103
+	# Different upstream snapshots expose different discriminator signatures.
+	for args in ((2, 32), (32,), ()):  # noqa: C408
+		try:
+			return PatchDiscriminatorClass(*args).to(device)
+		except TypeError:
+			continue
+	return PatchDiscriminatorClass().to(device)
+
+
+def critic_forward(critic, chunks, cond_vecs):  # noqa: ANN001, ANN201, D103
+	if critic_uses_conditioning:
+		return critic(chunks, cond_vecs)
+	try:
+		return critic(chunks, cond_vecs)
+	except TypeError:
+		return critic(chunks)
+
 
 device = "cuda:0"
 torch.cuda.set_device(device)
@@ -109,7 +131,7 @@ criterion = FastPitchLoss(dur_loss_toofast_scale=1.0)
 attention_kl_loss = AttentionBinarizationLoss()
 
 
-critic = PatchDiscriminatorCond(2, 32).to(device)
+critic = build_critic(device)
 
 optimizer_d = torch.optim.AdamW(
 	critic.parameters(),
@@ -203,8 +225,10 @@ for epoch in range(n_epoch, config.epochs):
 			cond_vecs = speaker_vecs
 
 		# discriminator step
-		d_org, fmaps_org = critic(chunks_org_.requires_grad_(True), cond_vecs)  # noqa: FBT003
-		d_gen, _ = critic(chunks_gen_.detach(), cond_vecs)
+		d_org, fmaps_org = critic_forward(
+			critic, chunks_org_.requires_grad_(True), cond_vecs  # noqa: FBT003
+		)
+		d_gen, _ = critic_forward(critic, chunks_gen_.detach(), cond_vecs)
 
 		loss_d = 0.5 * (d_org - 1).square().mean() + 0.5 * d_gen.square().mean()
 
@@ -215,7 +239,7 @@ for epoch in range(n_epoch, config.epochs):
 		# generator step
 		loss, meta = criterion(y_pred, y)
 
-		d_gen2, fmaps_gen = critic(chunks_gen_, cond_vecs)
+		d_gen2, fmaps_gen = critic_forward(critic, chunks_gen_, cond_vecs)
 		loss_score = (d_gen2 - 1).square().mean()
 		loss_fmatch = calc_feature_match_loss(fmaps_gen, fmaps_org)
 
