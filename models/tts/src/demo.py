@@ -15,6 +15,23 @@ import torchaudio
 from models.fastpitch import FastPitch2Wave
 
 
+def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True):
+    """Load a pretrained BigVGAN model from Hugging Face."""
+    try:
+        import bigvgan
+    except ImportError:
+        print("Installing bigvgan...")  # noqa: T201
+        import subprocess
+        import sys
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "bigvgan"])
+        import bigvgan
+
+    model = bigvgan.BigVGAN.from_pretrained(model_name, use_cuda=use_cuda)
+    model.remove_weight_norm()
+    model.eval()
+    return model
+
+
 def find_checkpoints(ckpt_dir: str) -> list[str]:
     """Discover all .pth checkpoint files in a directory."""
     ckpt_path = Path(ckpt_dir)
@@ -36,32 +53,54 @@ def load_model(ckpt_dir: str, ckpt_name: str, use_cuda: bool = True):
 # Global model cache to avoid reloading on every request
 _cached_model = None
 _cached_ckpt_name = None
+_cached_vocoder = None
+_cached_vocoder_type = None
 
 
 import re
 
 
-def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir: str):
-    """Generate speech from text using the selected checkpoint."""
-    global _cached_model, _cached_ckpt_name  # noqa: PLW0603
+def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir: str, vocoder_type: str):
+    """Generate speech from text using the selected checkpoint and vocoder."""
+    global _cached_model, _cached_ckpt_name, _cached_vocoder, _cached_vocoder_type  # noqa: PLW0603
 
     if not text.strip():
         return None
 
-    # Load or reuse model
+    # Load or reuse FastPitch model
     if _cached_ckpt_name != ckpt_name or _cached_model is None:
         _cached_model = load_model(ckpt_dir, ckpt_name)
         _cached_ckpt_name = ckpt_name
+
+    use_cuda = next(_cached_model.parameters()).is_cuda
+
+    # Load or reuse Vocoder
+    if _cached_vocoder_type != vocoder_type or _cached_vocoder is None:
+        if vocoder_type == "BigVGAN (v2 Universal)":
+            _cached_vocoder = load_bigvgan(use_cuda=use_cuda)
+        else:
+            _cached_vocoder = None  # Use bundled HiFi-GAN
+        _cached_vocoder_type = vocoder_type
 
     # Strip punctuation to prevent KeyError in the phonemizer
     clean_text = re.sub(r'[^\w\s]', '', text)
 
     # Generate waveform
-    try:
-        wave = _cached_model.tts(clean_text, speaker_id=speaker_id, phonemize=False)
-    except TypeError:
-        wave = _cached_model.tts(clean_text, speaker_id=speaker_id)
-    wave = wave.unsqueeze(0).cpu()
+    if _cached_vocoder_type == "BigVGAN (v2 Universal)":
+        # Get mel from FastPitch, then pass to BigVGAN
+        mel = _cached_model.model.ttmel(clean_text, speed=pace, speaker_id=speaker_id)
+        if len(mel.shape) == 2:
+            mel = mel.unsqueeze(0)
+        with torch.inference_mode():
+            wave = _cached_vocoder(mel)
+        wave = wave[0].cpu()
+    else:
+        # Use default FastPitch2Wave path (HiFi-GAN)
+        try:
+            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, pace=pace, phonemize=False)
+        except TypeError:
+            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, pace=pace)
+        wave = wave.unsqueeze(0).cpu()
 
     # Save to temp file
     out_path = "/tmp/vt_demo_output.wav"  # noqa: S108
@@ -114,6 +153,11 @@ def build_ui(ckpt_dir: str):
                         step=0.1,
                         value=1.0,
                     )
+                vocoder_dropdown = gr.Dropdown(
+                    label="Vocoder (Audio Engine)",
+                    choices=["HiFi-GAN (Original)", "BigVGAN (v2 Universal)"],
+                    value="HiFi-GAN (Original)",
+                )
                 generate_btn = gr.Button("🔊 Generate", variant="primary", size="lg")
 
             with gr.Column(scale=1):
@@ -129,8 +173,8 @@ def build_ui(ckpt_dir: str):
         refresh_btn.click(fn=refresh_ckpts, outputs=[ckpt_dropdown])
 
         generate_btn.click(
-            fn=lambda text, ckpt, sid, p: synthesize(text, ckpt, int(sid), p, ckpt_dir),
-            inputs=[text_input, ckpt_dropdown, speaker_id, pace],
+            fn=lambda text, ckpt, sid, p, voc: synthesize(text, ckpt, int(sid), p, ckpt_dir, voc),
+            inputs=[text_input, ckpt_dropdown, speaker_id, pace, vocoder_dropdown],
             outputs=[audio_output],
         )
 
