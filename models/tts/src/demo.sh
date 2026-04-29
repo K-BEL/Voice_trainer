@@ -11,6 +11,7 @@ set -e
 # Resolve checkpoints directory relative to CWD before we change directories
 if [ -n "$1" ]; then
     ckpt_dir=$(realpath "$1")
+    shift
 fi
 
 # Go to the directory of this script
