@@ -8,19 +8,24 @@
 
 set -e
 
+# Resolve checkpoints directory relative to CWD before we change directories
+if [ -n "$1" ]; then
+    ckpt_dir=$(realpath "$1")
+fi
+
 # Go to the directory of this script
 cd "$(dirname "$0")"
-
 src_dir=$(pwd)
+
+if [ -z "$ckpt_dir" ]; then
+    ckpt_dir=$(realpath "$src_dir/../checkpoints")
+fi
+
 root_dir="$src_dir/../../.."
 
 # Activate virtual environment
 # shellcheck disable=SC1091
 source "$root_dir/venv/bin/activate"
-
-# Resolve checkpoints directory
-ckpt_dir="${1:-$src_dir/../checkpoints}"
-ckpt_dir=$(realpath "$ckpt_dir")
 
 # copy demo script to tts-arabic-pytorch
 cp "$src_dir/demo.py" ../tts-arabic-pytorch/

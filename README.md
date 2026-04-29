@@ -51,6 +51,14 @@ This performs:
 5. Pitch extraction
 6. Config generation at `models/tts/src/config.yaml`
 
+### 3) Activate Environment
+
+The setup script creates a virtual environment at `./venv`. To activate it manually for testing or running scripts:
+
+```bash
+source venv/bin/activate
+```
+
 Common setup options:
 
 ```bash
