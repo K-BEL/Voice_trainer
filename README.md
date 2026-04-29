@@ -118,6 +118,21 @@ Then open `http://0.0.0.0:7860` in your browser. Features:
 - Adjustable speaker ID and pace
 - Real-time audio playback
 
+### Accessing Demo Remotely
+
+If the demo is running on a remote server, use SSH port forwarding to see it on your local browser:
+
+```bash
+# Run this on your LOCAL machine
+ssh -L 7860:localhost:7860 user@remote-ip
+```
+
+Then open `http://localhost:7860` on your local browser. Alternatively, use the `--share` flag to get a public URL:
+
+```bash
+bash models/tts/src/demo.sh models/tts/checkpoints --share
+```
+
 ## Training Features
 
 ### Mixed Precision (AMP)
