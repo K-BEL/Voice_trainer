@@ -36,8 +36,16 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
     with open(config_file) as f:
         config = json.load(f)
     
-    # Instantiate class manually (BigVGAN expects a dict)
-    model = bigvgan.BigVGAN(config)
+    # BigVGAN needs an object that supports BOTH dot and bracket access
+    class AttrDict(dict):
+        def __init__(self, *args, **kwargs):
+            super(AttrDict, self).__init__(*args, **kwargs)
+            self.__dict__ = self
+            
+    h = AttrDict(config)
+    
+    # Instantiate class manually
+    model = bigvgan.BigVGAN(h)
     state_dict = torch.load(model_file, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict["model"])
     
