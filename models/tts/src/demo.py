@@ -38,6 +38,9 @@ _cached_model = None
 _cached_ckpt_name = None
 
 
+import re
+
+
 def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir: str):
     """Generate speech from text using the selected checkpoint."""
     global _cached_model, _cached_ckpt_name  # noqa: PLW0603
@@ -50,8 +53,14 @@ def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir
         _cached_model = load_model(ckpt_dir, ckpt_name)
         _cached_ckpt_name = ckpt_name
 
+    # Strip punctuation to prevent KeyError in the phonemizer
+    clean_text = re.sub(r'[^\w\s]', '', text)
+
     # Generate waveform
-    wave = _cached_model.tts(text, speaker_id=speaker_id, phonemize=False)
+    try:
+        wave = _cached_model.tts(clean_text, speaker_id=speaker_id, phonemize=False)
+    except TypeError:
+        wave = _cached_model.tts(clean_text, speaker_id=speaker_id)
     wave = wave.unsqueeze(0).cpu()
 
     # Save to temp file
