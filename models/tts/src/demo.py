@@ -47,7 +47,12 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
     # Instantiate class manually
     model = bigvgan.BigVGAN(h)
     state_dict = torch.load(model_file, map_location="cpu", weights_only=True)
-    model.load_state_dict(state_dict["model"])
+    if "model" in state_dict:
+        model.load_state_dict(state_dict["model"])
+    elif "generator" in state_dict:
+        model.load_state_dict(state_dict["generator"])
+    else:
+        model.load_state_dict(state_dict)
     
     if use_cuda and torch.cuda.is_available():
         model = model.cuda()
