@@ -26,11 +26,24 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
         subprocess.check_call([sys.executable, "-m", "pip", "install", "bigvgan"])
         import bigvgan
 
-    from huggingface_hub import snapshot_download
-    # Manually download to avoid the broken 'from_pretrained' in some bigvgan versions
-    local_dir = snapshot_download(repo_id=model_name)
+    from huggingface_hub import hf_hub_download
+    import json
+
+    # Download config and weights manually
+    config_file = hf_hub_download(repo_id=model_name, filename="config.json")
+    model_file = hf_hub_download(repo_id=model_name, filename="bigvgan_generator.pth")
     
-    model = bigvgan.BigVGAN.from_pretrained(local_dir, use_cuda=use_cuda)
+    with open(config_file) as f:
+        config = json.load(f)
+    
+    # Instantiate class manually
+    model = bigvgan.BigVGAN(**config)
+    state_dict = torch.load(model_file, map_location="cpu", weights_only=True)
+    model.load_state_dict(state_dict["model"])
+    
+    if use_cuda and torch.cuda.is_available():
+        model = model.cuda()
+    
     model.remove_weight_norm()
     model.eval()
     return model
