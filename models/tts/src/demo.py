@@ -97,9 +97,9 @@ def synthesize(text: str, ckpt_name: str, speaker_id: int, pace: float, ckpt_dir
     else:
         # Use default FastPitch2Wave path (HiFi-GAN)
         try:
-            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, pace=pace, phonemize=False)
+            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, speed=pace, phonemize=False)
         except TypeError:
-            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, pace=pace)
+            wave = _cached_model.tts(clean_text, speaker_id=speaker_id, speed=pace)
         wave = wave.unsqueeze(0).cpu()
 
     # Save to temp file
