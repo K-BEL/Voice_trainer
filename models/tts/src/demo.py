@@ -26,7 +26,11 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
         subprocess.check_call([sys.executable, "-m", "pip", "install", "bigvgan"])
         import bigvgan
 
-    model = bigvgan.BigVGAN.from_pretrained(model_name, use_cuda=use_cuda)
+    from huggingface_hub import snapshot_download
+    # Manually download to avoid the broken 'from_pretrained' in some bigvgan versions
+    local_dir = snapshot_download(repo_id=model_name)
+    
+    model = bigvgan.BigVGAN.from_pretrained(local_dir, use_cuda=use_cuda)
     model.remove_weight_norm()
     model.eval()
     return model
