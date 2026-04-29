@@ -31,7 +31,7 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
 
     # Download config and weights manually
     config_file = hf_hub_download(repo_id=model_name, filename="config.json")
-    model_file = hf_hub_download(repo_id=model_name, filename="bigvgan_generator.pth")
+    model_file = hf_hub_download(repo_id=model_name, filename="bigvgan_generator.pt")
     
     with open(config_file) as f:
         config = json.load(f)
