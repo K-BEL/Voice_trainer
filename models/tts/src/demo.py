@@ -36,8 +36,12 @@ def load_bigvgan(model_name="nvidia/bigvgan_v2_22khz_80band_256x", use_cuda=True
     with open(config_file) as f:
         config = json.load(f)
     
+    # BigVGAN expects a single config object (Namespace)
+    from types import SimpleNamespace
+    h = SimpleNamespace(**config)
+    
     # Instantiate class manually
-    model = bigvgan.BigVGAN(**config)
+    model = bigvgan.BigVGAN(h)
     state_dict = torch.load(model_file, map_location="cpu", weights_only=True)
     model.load_state_dict(state_dict["model"])
     
