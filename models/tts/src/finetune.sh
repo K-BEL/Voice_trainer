@@ -19,4 +19,5 @@ cd ../tts-arabic-pytorch/
 
 # run script
 export LD_LIBRARY_PATH=""
+export VT_AMP="0"
 python train_fp_adv.py --config "$src_dir/config.yaml"
