@@ -18,4 +18,5 @@ cp "$src_dir/train_fp_adv.py" ../tts-arabic-pytorch/
 cd ../tts-arabic-pytorch/
 
 # run script
+export LD_LIBRARY_PATH=""
 python train_fp_adv.py --config "$src_dir/config.yaml"
