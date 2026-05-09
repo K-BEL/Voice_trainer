@@ -2,6 +2,8 @@ import argparse  # noqa: D100
 import os
 import shutil
 
+import torch
+torch.backends.cudnn.enabled = False
 import torchaudio
 
 from models.fastpitch import FastPitch2Wave
