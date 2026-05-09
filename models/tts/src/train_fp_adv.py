@@ -13,6 +13,7 @@ import time
 
 import matplotlib.pyplot as plt
 import torch
+torch.backends.cudnn.enabled = False
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from utils import data as data_utils
