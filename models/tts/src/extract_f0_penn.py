@@ -64,7 +64,8 @@ gpu = _resolve_gpu(args.gpu)
 
 def infer_pitch(wav, sr, thr=0.5, sr8k=True, batch_size=1024):  # noqa: ANN001, ANN201, D103, FBT002
 	mel_spec = mel_trf(wav)
-	audio = torchaudio.functional.resample(wav, sr, 16000)
+	# Force resampling on CPU to avoid cuDNN workspace crashes on long 1D convolutions
+	audio = torchaudio.functional.resample(wav.cpu(), sr, 16000).to(wav.device)
 
 	pitch, periodicity = penn.from_audio(
 		audio,
