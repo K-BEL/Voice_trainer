@@ -7,6 +7,7 @@ from pathlib import Path
 import librosa
 import numpy as np
 import torch
+torch.backends.cudnn.enabled = False
 import torchaudio
 from tqdm import tqdm
 from utils.audio import MelSpectrogram
