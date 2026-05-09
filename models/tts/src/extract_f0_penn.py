@@ -53,21 +53,9 @@ def _resolve_gpu(gpu_index):  # noqa: ANN001, ANN201
 	"""Resolve whether CUDA can be used safely for this device."""
 	if gpu_index < 0 or not torch.cuda.is_available():
 		return None
-
-	try:
-		major, minor = torch.cuda.get_device_capability(gpu_index)
-		required_arch = f"sm_{major}{minor}"
-		supported_arches = set(torch.cuda.get_arch_list())
-	except Exception:  # noqa: BLE001
-		# If introspection fails, keep the user's choice.
-		return gpu_index
-
-	if required_arch not in supported_arches:
-		print(  # noqa: T201
-			f"CUDA arch {required_arch} is not supported by this PyTorch build; "
-			"falling back to CPU."
-		)
-		return None
+	
+	# PyTorch often uses PTX fallback for new architectures (like sm_89) 
+	# which aren't strictly in get_arch_list(). We bypass the strict check.
 	return gpu_index
 
 
