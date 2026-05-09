@@ -740,7 +740,12 @@ for epoch in range(n_epoch, config.epochs):
 
 		critic.zero_grad()
 		scaler_d.scale(loss_d).backward()
-		scaler_d.step(optimizer_d)
+		scaler_d.unscale_(optimizer_d)
+		grad_norm_d = torch.nn.utils.clip_grad_norm_(critic.parameters(), 1000.0)
+		if _is_finite_tensor(grad_norm_d):
+			scaler_d.step(optimizer_d)
+		else:
+			optimizer_d.zero_grad(set_to_none=True)
 		scaler_d.update()
 
 		# ── Generator step (AMP) ────────────────────────────────
