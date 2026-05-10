@@ -36,4 +36,5 @@ fi
 # Re-enable Automatic Mixed Precision (AMP) for RTX 5070 Ti stability
 export VT_AMP="1"
 export LD_LIBRARY_PATH=""
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 python train_fp_adv.py --config "$src_dir/config.yaml"
