@@ -44,15 +44,22 @@ def _ensure_pkg(pkg: str, import_name: str | None = None) -> bool:
         __import__(import_name)
         return True
     except ImportError:
+        pass
+
+    # Try standard install first, then --user (for macOS system Python)
+    for extra in ([], ["--user"]):
         try:
             subprocess.run(
-                [sys.executable, "-m", "pip", "install", "--quiet", pkg],
+                [sys.executable, "-m", "pip", "install", "--quiet", pkg] + extra,
                 check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             __import__(import_name)
             return True
         except Exception:
-            return False
+            continue
+    return False
 
 
 _RTL_AVAILABLE: bool | None = None
