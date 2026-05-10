@@ -7,7 +7,7 @@ from tqdm import tqdm
 def main():
     parser = argparse.ArgumentParser(description="Download and format DODa dataset for darija-chatbot")
     parser.add_argument("--token", type=str, default=True, help="Hugging Face access token (optional if logged in)")
-    parser.add_argument("--output-dir", type=str, default="datasets/doda-dataset", help="Output directory for the formatted dataset")
+    parser.add_argument("--output-dir", type=str, default="datasets/doda-dataset/doda", help="Output directory for the formatted dataset")
     parser.add_argument("--split", type=str, default="train", help="Dataset split to download")
     
     args = parser.parse_args()
