@@ -25,7 +25,7 @@ shutil.rmtree(out_dir, ignore_errors=True)
 # create out_dir
 os.makedirs(out_dir, exist_ok=True)  # noqa: PTH103
 
-model = FastPitch2Wave(ckpt_path, vowelizer='shakkelha')
+model = FastPitch2Wave(ckpt_path, vowelizer=None)
 if use_cuda:
     model = model.cuda()
 
