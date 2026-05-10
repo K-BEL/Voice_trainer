@@ -56,6 +56,14 @@ datasets/doda-dataset/doda/audios/      ← listen to a few files
 ```
 
 Delete any rows where the caption does not match the audio.  
+
+```bash
+  Run the interactive review tool (plays 20 random samples):
+    python scripts/review_dataset.py --dataset-dir "$OUTPUT_DIR" --n 20
+  Controls: Enter/k = keep | r = remove | q = quit
+  Rejected rows are removed from data.csv automatically.
+```
+
 Then continue:
 
 ```bash
