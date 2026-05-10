@@ -595,8 +595,8 @@ def build_val_dataset(config, val_labels_path):  # noqa: ANN001, ANN201, D103
 
 # ─── AMP (Mixed Precision) ────────────────────────────────────────
 use_amp = os.environ.get("VT_AMP", "1") == "1"
-scaler_g = torch.amp.GradScaler("cuda", enabled=use_amp)
-scaler_d = torch.amp.GradScaler("cuda", enabled=use_amp)
+scaler_g = torch.amp.GradScaler("cuda", enabled=False)
+scaler_d = torch.amp.GradScaler("cuda", enabled=False)
 if use_amp:
 	print("Mixed precision (AMP) enabled")  # noqa: T201
 
@@ -672,7 +672,7 @@ for epoch in range(n_epoch, config.epochs):
 		x = tuple(x)
 
 		# ── Forward pass (AMP) ──────────────────────────────────
-		with torch.amp.autocast("cuda", enabled=use_amp):
+		with torch.amp.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
 			y_pred = model(x)
 
 		mel_out, *_, attn_soft, attn_hard, _, _ = y_pred
@@ -725,7 +725,7 @@ for epoch in range(n_epoch, config.epochs):
 			cond_vecs = speaker_vecs
 
 		# ── Discriminator step (AMP) ────────────────────────────
-		with torch.amp.autocast("cuda", enabled=use_amp):
+		with torch.amp.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
 			d_org, fmaps_org = critic_forward(
 				critic, chunks_org_.requires_grad_(True), cond_vecs  # noqa: FBT003
 			)
@@ -749,7 +749,7 @@ for epoch in range(n_epoch, config.epochs):
 		scaler_d.update()
 
 		# ── Generator step (AMP) ────────────────────────────────
-		with torch.amp.autocast("cuda", enabled=use_amp):
+		with torch.amp.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
 			loss, meta = criterion(y_pred, y)
 			d_gen2, fmaps_gen = critic_forward(critic, chunks_gen_, cond_vecs)
 			loss_score = (d_gen2 - 1).square().mean()
@@ -830,7 +830,7 @@ for epoch in range(n_epoch, config.epochs):
 			if val_loader is not None:
 				model.eval()
 				val_losses = []
-				with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp):
+				with torch.no_grad(), torch.amp.autocast("cuda", enabled=use_amp, dtype=torch.bfloat16):
 					for val_batch in val_loader:
 						try:
 							vx, vy, _ = batch_to_gpu(val_batch)
