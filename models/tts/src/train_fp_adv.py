@@ -920,11 +920,11 @@ if writer is not None:
 idx = 0
 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7))
 ax1.imshow(
-	y_pred[0][idx, : y[2][idx], :].detach().cpu().t(),
+	y_pred[0][idx, : y[2][idx], :].detach().cpu().float().t(),
 	aspect="auto",
 	origin="lower",
 )
-ax2.imshow(y[0][idx, :, : y[2][idx]].detach().cpu(), aspect="auto", origin="lower")
+ax2.imshow(y[0][idx, :, : y[2][idx]].detach().cpu().float(), aspect="auto", origin="lower")
 
 
 vocoder = load_hifigan(config.vocoder_state_path, config.vocoder_config_path)
@@ -937,9 +937,9 @@ with torch.inference_mode():
 
 	wave = vocoder(mel_out[0])
 
-plt.imshow(mel_out[0].cpu(), aspect="auto", origin="lower")
+plt.imshow(mel_out[0].cpu().float(), aspect="auto", origin="lower")
 
-plt.plot(wave[0].cpu())
+plt.plot(wave[0].cpu().float())
 
 
 if tokenizer_raw is not None:
