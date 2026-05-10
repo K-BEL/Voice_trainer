@@ -64,11 +64,65 @@ echo ""
 echo "📦 Installing Python packages..."
 pip install --upgrade pip --quiet
 
-if ! python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
-    echo "   ⚠️  PyTorch CUDA not detected. Installing PyTorch 2.6.0 + CUDA 12.4..."
-    pip install --no-cache-dir torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null; then
+    # Detect GPU compute capability
+    SM=$(python -c "
+import torch
+if torch.cuda.is_available():
+    major, minor = torch.cuda.get_device_capability(0)
+    print(f'{major}{minor}')
+else:
+    print('0')
+" 2>/dev/null)
+    echo "   GPU detected — compute capability: sm_${SM}"
+    if python -c "import torch; assert torch.cuda.is_available()" 2>/dev/null && \
+       python -c "
+import torch
+major, minor = torch.cuda.get_device_capability(0)
+# Check if the installed torch actually supports this GPU
+props = torch.cuda.get_device_properties(0)
+import subprocess, sys
+out = subprocess.run([sys.executable, '-c',
+    'import torch; print(torch.version.cuda)'], capture_output=True, text=True)
+" 2>/dev/null; then
+        # Test if the current install produces warnings about unsupported capability
+        WARN=$(python -c "
+import warnings, io, torch
+buf = io.StringIO()
+import warnings as _w
+with _w.catch_warnings(record=True) as w:
+    _w.simplefilter('always')
+    torch.cuda.get_device_capability(0)
+    for warning in w:
+        if 'not compatible' in str(warning.message):
+            print('unsupported')
+            break
+" 2>/dev/null)
+        if [ "$WARN" = "unsupported" ] || [ "${SM:-0}" -ge "120" ]; then
+            echo "   ⚠️  Blackwell GPU (sm_${SM}) — PyTorch stable does not support it."
+            echo "   Installing PyTorch nightly with CUDA 12.8..."
+            pip install --no-cache-dir --pre \
+                torch torchaudio \
+                --index-url https://download.pytorch.org/whl/nightly/cu128
+        else
+            echo "   ✅ PyTorch CUDA already installed and compatible."
+        fi
+    fi
 else
-    echo "   ✅ PyTorch CUDA already installed."
+    echo "   ⚠️  PyTorch CUDA not detected. Detecting best install..."
+    # Try to read GPU capability even without a working torch
+    SM_RAW=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
+    if [ -n "$SM_RAW" ] && [ "$SM_RAW" -ge "120" ] 2>/dev/null; then
+        echo "   Blackwell GPU detected (sm_${SM_RAW}) — installing PyTorch nightly + CUDA 12.8..."
+        pip install --no-cache-dir --pre \
+            torch torchaudio \
+            --index-url https://download.pytorch.org/whl/nightly/cu128
+    else
+        echo "   Installing PyTorch 2.6.0 + CUDA 12.4 (stable)..."
+        pip install --no-cache-dir \
+            torch==2.6.0 torchaudio==2.6.0 \
+            --index-url https://download.pytorch.org/whl/cu124
+    fi
 fi
 
 pip install --no-cache-dir torbi

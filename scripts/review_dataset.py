@@ -92,19 +92,23 @@ def _find_player() -> str | None:
     return None
 
 
-def play_audio(path: str, player: str) -> None:
-    """Play an audio file silently (no banner, no window)."""
+def play_audio(path: str, player: str) -> bool:
+    """Play an audio file. Returns True on success, False if no audio hardware."""
+    kwargs = dict(check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     if player == "ffplay":
-        subprocess.run(
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path],
-            check=False,
+        r = subprocess.run(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path], **kwargs
         )
     elif player == "aplay":
-        subprocess.run(["aplay", "--quiet", path], check=False)
+        r = subprocess.run(["aplay", "--quiet", path], **kwargs)
     elif player == "mpv":
-        subprocess.run(["mpv", "--no-video", "--really-quiet", path], check=False)
+        r = subprocess.run(["mpv", "--no-video", "--really-quiet", path], **kwargs)
     elif player == "play":  # sox
-        subprocess.run(["play", "-q", path], check=False)
+        r = subprocess.run(["play", "-q", path], **kwargs)
+    else:
+        return False
+    # Return code 1 usually means no audio device on headless servers
+    return r.returncode == 0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -124,10 +128,11 @@ def review_dataset(dataset_dir: str, n: int = 20, seed: int | None = None) -> No
         sys.exit(1)
 
     player = _find_player()
-    if player is None:
+    audio_available = player is not None
+    if not audio_available:
         print("⚠️  No audio player found (ffplay / aplay / mpv / play).")
         print("   Install with: sudo apt install ffmpeg")
-        print("   Continuing without audio playback.\n")
+        print("   Continuing in caption-only mode.\n")
 
     # ── Load CSV ──────────────────────────────────────────────────────────────
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -159,12 +164,16 @@ def review_dataset(dataset_dir: str, n: int = 20, seed: int | None = None) -> No
         print(f"  Caption : {fix_rtl(caption)}")
 
         # Play audio
-        if player and audio_path.exists():
+        if audio_available and audio_path.exists():
             print(f"  ▶ Playing ({player})…", end="", flush=True)
-            play_audio(str(audio_path), player)
-            print(" done")
+            ok = play_audio(str(audio_path), player)
+            if ok:
+                print(" done")
+            else:
+                print(" ⚠️  no audio hardware (headless server) — caption-only mode")
+                audio_available = False  # don't try again for remaining samples
         elif not audio_path.exists():
-            print(f"  ⚠️  Audio file not found, skipping playback.")
+            print("  ⚠️  Audio file not found, skipping playback.")
 
         # Decision prompt
         while True:
