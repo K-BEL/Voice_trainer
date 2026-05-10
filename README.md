@@ -36,40 +36,63 @@ cd Voice_trainer
 
 `--recurse-submodules` is required to pull `models/tts/tts-arabic-pytorch`.
 
-### 2) Setup data + dependencies
+### 2) Staged Setup (Recommended)
+
+Each stage is independent so you can review the dataset before committing to a long training run:
+
+```bash
+# Stage 1 — Install Python packages + pretrained weights (once per instance)
+bash scripts/setup-deps.sh
+
+# Stage 2 — Download + format the DODa dataset
+bash scripts/download-dataset.sh
+```
+
+**Manually review the raw dataset before continuing:**
+
+```text
+datasets/doda-dataset/doda/data.csv     ← spot-check audio/caption pairs
+datasets/doda-dataset/doda/audios/      ← listen to a few files
+```
+
+Delete any rows where the caption does not match the audio.  
+Then continue:
+
+```bash
+# Stage 3 — Merge, convert to WAV, extract F0, generate config
+bash scripts/prepare-dataset.sh
+
+# Stage 4 — Train
+bash models/tts/src/finetune.sh
+```
+
+### One-shot Setup (Automated)
+
+Skips the manual review step — runs all stages in sequence:
 
 ```bash
 bash scripts/setup_tts_doda.sh
 ```
 
-This performs:
-
-1. Environment/dependency installation
-2. DODa download + formatting
-3. Dataset merge and audio prep
-4. Pretrained model download
-5. Pitch extraction
-6. Config generation at `models/tts/src/config.yaml`
-
-### 3) Activate Environment
-
-The setup script creates a virtual environment at `./venv`. To activate it manually for testing or running scripts:
+Common options:
 
 ```bash
-source venv/bin/activate
-```
-
-Common setup options:
-
-```bash
-# Skip dataset download
+# Skip dataset download (dataset already exists)
 bash scripts/setup_tts_doda.sh --skip-download
 
 # Skip pretrained model download
 bash scripts/setup_tts_doda.sh --skip-pretrained
 
-# Customize training plan at config-generation time
+# Customize training length at config-generation time
 bash scripts/setup_tts_doda.sh --epochs 200 --save-interval 1000
+```
+
+### Activate Environment Manually
+
+The setup script creates a virtual environment at `./venv`. To activate it for ad-hoc commands:
+
+```bash
+source venv/bin/activate
 ```
 
 ## Train
@@ -234,16 +257,19 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 ```text
 Voice_trainer/
 ├── scripts/
-│   ├── setup_tts_doda.sh
+│   ├── setup-deps.sh           ← Stage 1: install packages + weights
+│   ├── download-dataset.sh     ← Stage 2: download + format DODa
+│   ├── prepare-dataset.sh      ← Stage 3: merge, WAV, F0, config
+│   ├── setup_tts_doda.sh       ← All-in-one (chains the 3 above)
 │   └── download_format_doda.py
 ├── models/
 │   └── tts/
 │       ├── src/
 │       │   ├── finetune.sh
 │       │   ├── test-ckpts.sh
-│       │   ├── demo.sh           ← NEW: Launch Gradio demo
-│       │   ├── demo.py           ← NEW: Interactive web UI
-│       │   ├── train_fp_adv.py   ← UPGRADED: AMP, LR sched, validation
+│       │   ├── demo.sh
+│       │   ├── demo.py
+│       │   ├── train_fp_adv.py
 │       │   ├── generate-config.py
 │       │   ├── extract_f0_penn.py
 │       │   ├── download_files.py
